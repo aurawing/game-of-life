@@ -13,7 +13,7 @@ import {
 } from '../lib/pi-catalog';
 import { THEME_LABELS } from '../lib/theme';
 import { isOpenCodeGoUrl } from '../lib/provider-urls';
-import { normalizeApiKey, probeProviderAuth } from '../lib/harness/request';
+import { isMaskedApiKey, normalizeApiKey, probeProviderAuth } from '../lib/harness/request';
 
 const THEMES: ThemeMode[] = ['dark', 'light', 'system'];
 
@@ -145,7 +145,17 @@ export function SettingsView({ onClose }: { onClose: () => void }) {
                 {keyLen > 0 && <span className="muted tiny">已输入 {keyLen} 位</span>}
               </div>
               {isOpenCodeGoUrl(active.baseUrl) && (
-                <p className="muted tiny">OpenCode 完整 Key 约 67 位。列表里带 … 的是掩码，请新建后在弹窗里复制。</p>
+                <>
+                  <p className="muted tiny">OpenCode 完整 Key 约 67 位。列表里带 … 的是掩码，请新建后在弹窗里复制。</p>
+                  {isMaskedApiKey(active.apiKey) && (
+                    <p className="assistant-error">含省略号，这是控制台掩码，不是完整密钥。</p>
+                  )}
+                  {keyLen > 0 && keyLen < 40 && !isMaskedApiKey(active.apiKey) && (
+                    <p className="assistant-error">
+                      当前只有 {keyLen} 位，几乎肯定会被 401 拒绝。请粘贴新建弹窗里的完整 sk-。
+                    </p>
+                  )}
+                </>
               )}
               {probe && <p className={probe.includes('有效') ? 'muted tiny' : 'assistant-error'}>{probe}</p>}
               {custom ? (

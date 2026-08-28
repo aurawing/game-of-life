@@ -1,6 +1,6 @@
 # Aurai 构建与功能测试报告
 
-日期：2026-08-28（OpenCode Go 空回复：SSE 失败后回退 JSON）
+日期：2026-08-28（OpenCode Go HTTP 401：规范化密钥、拒绝控制台掩码）
 
 ## APK
 
@@ -13,9 +13,9 @@
 | minSdk / targetSdk | 24 / 36 |
 | 应用名 | Aurai |
 
-本包：流式为空时用 CapacitorHttp 非流式 JSON 重试；OpenCode Go `text/plain` 401 会显示「请求失败」；发送后短暂禁用停止键。
+本包：粘贴时去掉 `Bearer`/空白/引号；含 `...`/`…` 的控制台掩码不发请求；401 会附带位数诊断；设置里显示「已输入 N 位」和「测试连接」（`GET /models`）。
 
 ## 测试
 
-- 单元：29 通过
-- e2e：12 / 12 通过（含 OpenCode Go 明文 JSON 401、空 SSE 回退 JSON 正文）
+- 单元：30 通过
+- e2e：13 / 13 通过（含短密钥 401 提示、掩码 Key 拦截、空 SSE 回退 JSON）

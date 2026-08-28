@@ -34,6 +34,8 @@ test.describe('Aurai Android UI', () => {
     await page.getByRole('button', { name: '设置' }).click();
     await page.getByLabel('设置提供商').selectOption('opencode-go');
     await page.getByLabel('API Key').fill('sk-go');
+    await expect(page.getByText(/已输入 5 位/)).toBeVisible();
+    await expect(page.getByText(/几乎肯定会被 401/)).toBeVisible();
     await page.getByLabel('当前模型').selectOption('deepseek-v4-flash');
     await expect(page.getByText('该接口不接受思维强度参数，按服务端默认推理。')).toBeVisible();
     await closeOverlay(page);
@@ -101,7 +103,9 @@ test.describe('Aurai Android UI', () => {
     await reset(page);
     await openMenu(page);
     await page.getByRole('button', { name: '设置' }).click();
+    await page.getByLabel('设置提供商').selectOption('opencode-go');
     await page.getByLabel('API Key').fill('sk-hSmj...oGil');
+    await expect(page.getByText(/控制台掩码/)).toBeVisible();
     await closeOverlay(page);
     await page.getByPlaceholder('发送消息').fill('你好');
     await page.getByRole('button', { name: '发送' }).click();
