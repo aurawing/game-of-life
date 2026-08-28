@@ -47,18 +47,48 @@ html[data-theme="light"] {
   --app-glow: rgba(77, 107, 254, 0.12);
 }
 
-* { box-sizing: border-box; }
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body, #root { height: 100%; }
 html { background: var(--bg); color: var(--text); }
 body { margin: 0; overflow: hidden; }
-button, input, textarea, select {
+button, input, textarea, select, a {
   font: inherit;
   color: inherit;
   background: transparent;
   border: 0;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
 }
-button { cursor: pointer; }
+button, .chip.btn, .think-chip, .tab, .session-main {
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+  overflow: hidden;
+  transition:
+    transform 0.16s ease,
+    background-color 0.16s ease,
+    color 0.16s ease,
+    opacity 0.16s ease,
+    box-shadow 0.16s ease,
+    filter 0.16s ease;
+}
+button:focus,
+button:focus-visible,
+.chip.btn:focus,
+.think-chip:focus,
+.tab:focus,
+.session-main:focus {
+  outline: none;
+  box-shadow: none;
+}
 textarea, input, select { outline: none; }
+textarea:focus, input:focus, select:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(77, 107, 254, 0.28);
+}
 
 .app {
   height: 100dvh;
@@ -103,7 +133,22 @@ textarea, input, select { outline: none; }
   place-items: center;
   flex: 0 0 auto;
 }
-.icon-btn:active, .ghost-btn:active, .primary-btn:active { transform: scale(0.98); opacity: 0.85; }
+.icon-btn:active { background: var(--bg-3); transform: scale(0.92); }
+.ghost-btn:active,
+.chip.btn:active,
+.tab:active,
+.effort button:active,
+.attach-menu button:active,
+.think-chip:active,
+.session-main:active {
+  background: var(--bg-3);
+  transform: scale(0.97);
+}
+.primary-btn:active,
+.send:active {
+  transform: scale(0.94);
+  filter: brightness(0.9);
+}
 .icon-btn.sm { width: 36px; height: 36px; }
 .icon-btn.danger { color: var(--danger); }
 
