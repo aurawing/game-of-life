@@ -7,7 +7,7 @@ import { builtinTools, mcpToolToDefinition, parseToolArgs, type ToolDefinition }
 import { callMcpTool } from './mcp';
 import { mergeToolCalls } from './stream';
 import { streamChatCompletions } from '../../native/sse';
-import { EMPTY_MODEL_REPLY, authHeaders, buildChatBody, chatCompletionsUrl } from './request';
+import { EMPTY_MODEL_REPLY, authHeaders, buildChatBody, chatCompletionsUrl, fetchJsonCompletion } from './request';
 
 export interface LoopHooks {
   onAssistant: (msg: ChatMessage) => void;
@@ -195,6 +195,8 @@ async function streamAssistant(opts: {
   });
 
   let toolAcc: { id?: string; name?: string; arguments: string }[] = [];
+  let sawError = false;
+  const startedAt = Date.now();
   try {
     for await (const ev of streamChatCompletions({
       url,
@@ -222,17 +224,18 @@ async function streamAssistant(opts: {
         }));
         opts.onUpdate({ ...msg });
       } else if (ev.type === 'error') {
+        sawError = true;
         msg.content = msg.content || `请求失败：${ev.message}`;
         opts.onUpdate({ ...msg });
       }
     }
   } catch (err) {
+    sawError = true;
     msg.content = msg.content || `网络错误：${err instanceof Error ? err.message : String(err)}`;
   }
   if (msg.reasoning && !msg.reasoningDurationMs) {
     msg.reasoningDurationMs = Date.now() - thinkStarted;
   }
-  msg.streaming = false;
   if (toolAcc.length) {
     msg.toolCalls = toolAcc
       .filter((t) => t.name)
@@ -243,11 +246,36 @@ async function streamAssistant(opts: {
       })) as ToolCall[];
   }
   const namedTools = msg.toolCalls?.some((t) => t.name) ?? false;
+  const abortedLate = Boolean(opts.signal?.aborted) && Date.now() - startedAt > 500;
+  const empty = !msg.content.trim() && !msg.reasoning?.trim() && !namedTools;
+  if (empty && !sawError && !abortedLate) {
+    msg.content = '正在改用非流式请求…';
+    opts.onUpdate({ ...msg, streaming: true });
+    try {
+      const fallback = await fetchJsonCompletion({
+        url,
+        headers: authHeaders(opts.provider, opts.modelConfig),
+        body,
+        signal: opts.signal,
+      });
+      if (fallback.error) {
+        msg.content = `请求失败：${fallback.error}`;
+      } else {
+        msg.reasoning = fallback.reasoning || msg.reasoning;
+        msg.content = fallback.content;
+      }
+    } catch (err) {
+      msg.content = `网络错误：${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
   if (!msg.content.trim() && msg.reasoning?.trim() && !namedTools) {
     msg.content = msg.reasoning;
-  } else if (!opts.signal?.aborted && !msg.content.trim() && !msg.reasoning?.trim() && !namedTools) {
+  } else if (abortedLate && !msg.content.trim()) {
+    msg.content = '已停止';
+  } else if (!msg.content.trim() && !namedTools) {
     msg.content = EMPTY_MODEL_REPLY;
   }
+  msg.streaming = false;
   opts.onUpdate({ ...msg });
   return msg;
 }

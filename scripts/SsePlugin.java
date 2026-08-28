@@ -69,13 +69,16 @@ public class SsePlugin extends Plugin {
             connections.put(id, conn);
             conn.setRequestMethod(method);
             conn.setDoInput(true);
+            conn.setInstanceFollowRedirects(true);
             conn.setConnectTimeout(20000);
             conn.setReadTimeout(0);
-            conn.setRequestProperty("Accept", "text/event-stream");
+            conn.setRequestProperty("Accept", "text/event-stream, application/json");
+            conn.setRequestProperty("User-Agent", "Aurai/1.0 (Android)");
             Iterator<String> keys = headers.keys();
             while (keys.hasNext()) {
                 String key = keys.next();
-                conn.setRequestProperty(key, headers.getString(key));
+                String value = headers.getString(key);
+                if (value != null) conn.setRequestProperty(key, value);
             }
             if ("POST".equalsIgnoreCase(method) || "PUT".equalsIgnoreCase(method)) {
                 conn.setDoOutput(true);
@@ -86,15 +89,25 @@ public class SsePlugin extends Plugin {
                 }
             }
             int code = conn.getResponseCode();
-            InputStream stream = code >= 400 ? conn.getErrorStream() : conn.getInputStream();
+            InputStream stream = null;
+            try {
+                stream = code >= 400 ? conn.getErrorStream() : conn.getInputStream();
+            } catch (Exception ignored) {
+            }
+            if (stream == null) {
+                try {
+                    stream = conn.getErrorStream() != null ? conn.getErrorStream() : conn.getInputStream();
+                } catch (Exception ignored) {
+                }
+            }
             if (stream == null) {
                 emit(id, "error", "HTTP " + code);
                 emitDone(id);
                 return;
             }
             String contentType = conn.getContentType() == null ? "" : conn.getContentType().toLowerCase();
-            boolean jsonBody = contentType.contains("json") && !contentType.contains("event-stream");
-            if (code >= 400 || jsonBody) {
+            boolean sse = contentType.contains("event-stream");
+            if (code >= 400 || !sse) {
                 String raw = readLimited(stream, ERROR_BODY_LIMIT);
                 if (code >= 400) {
                     emit(id, "error", "HTTP " + code + ": " + raw);

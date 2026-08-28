@@ -19,6 +19,27 @@ function tryJson(text: string): unknown | undefined {
   }
 }
 
+export function textFromContent(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) {
+    return value
+      .map((part) => {
+        if (typeof part === 'string') return part;
+        if (part && typeof part === 'object') {
+          const p = part as Record<string, unknown>;
+          if (typeof p.text === 'string') return p.text;
+          if (typeof p.content === 'string') return p.content;
+        }
+        return '';
+      })
+      .join('');
+  }
+  if (value && typeof value === 'object' && typeof (value as { text?: unknown }).text === 'string') {
+    return (value as { text: string }).text;
+  }
+  return '';
+}
+
 export function extractErrorMessage(json: unknown): string | null {
   if (typeof json === 'string' && json.trim()) return json.trim();
   if (!json || typeof json !== 'object') return null;
@@ -33,7 +54,8 @@ export function extractErrorMessage(json: unknown): string | null {
       return 'error';
     }
   }
-  if (typeof obj.message === 'string' && obj.message.trim()) return obj.message;
+  if (obj.type === 'error' && typeof obj.message === 'string' && obj.message.trim()) return obj.message;
+  if (typeof obj.message === 'string' && obj.message.trim() && !obj.choices) return obj.message;
   return null;
 }
 
@@ -102,7 +124,7 @@ export function extractStreamEvents(json: unknown): StreamEvent[] {
   const obj = json as Record<string, unknown>;
 
   const err = extractErrorMessage(obj);
-  if (err && (obj.error != null || (typeof obj.message === 'string' && !obj.choices))) {
+  if (err && (obj.error != null || obj.type === 'error' || (typeof obj.message === 'string' && !obj.choices))) {
     events.push({ type: 'error', message: err });
     return events;
   }
@@ -111,13 +133,10 @@ export function extractStreamEvents(json: unknown): StreamEvent[] {
   const choice = Array.isArray(choices) ? (choices[0] as Record<string, unknown> | undefined) : undefined;
   const delta = (choice?.delta ?? choice?.message ?? obj.delta ?? obj.message) as Record<string, unknown> | undefined;
   if (delta) {
-    const reasoning = delta.reasoning_content ?? delta.reasoning;
-    if (typeof reasoning === 'string' && reasoning) {
-      events.push({ type: 'reasoning', text: reasoning });
-    }
-    if (typeof delta.content === 'string' && delta.content) {
-      events.push({ type: 'content', text: delta.content });
-    }
+    const reasoning = textFromContent(delta.reasoning_content ?? delta.reasoning);
+    if (reasoning) events.push({ type: 'reasoning', text: reasoning });
+    const content = textFromContent(delta.content ?? delta.text ?? delta.output_text);
+    if (content) events.push({ type: 'content', text: content });
     const toolCalls = delta.tool_calls as unknown[] | undefined;
     if (Array.isArray(toolCalls)) {
       for (const raw of toolCalls) {
@@ -133,7 +152,24 @@ export function extractStreamEvents(json: unknown): StreamEvent[] {
       }
     }
   }
+  const outputText = textFromContent(obj.output_text);
+  if (outputText && !events.some((e) => e.type === 'content')) {
+    events.push({ type: 'content', text: outputText });
+  }
   return events;
+}
+
+export function completionFromJson(json: unknown): { content: string; reasoning: string; error?: string } {
+  const events = extractStreamEvents(json);
+  let content = '';
+  let reasoning = '';
+  let error: string | undefined;
+  for (const ev of events) {
+    if (ev.type === 'content') content += ev.text;
+    else if (ev.type === 'reasoning') reasoning += ev.text;
+    else if (ev.type === 'error') error = ev.message;
+  }
+  return { content, reasoning, error };
 }
 
 export function eventsFromPayloads(payloads: Array<unknown | 'DONE'>): { events: StreamEvent[]; done: boolean } {

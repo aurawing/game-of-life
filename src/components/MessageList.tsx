@@ -87,11 +87,14 @@ function MessageBubble({
           </div>
         )}
         {msg.content ? (
-          <div className="md" dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
+          <div
+            className={/请求失败|网络错误|没有正文|空响应/.test(msg.content) ? 'md assistant-error' : 'md'}
+            dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }}
+          />
         ) : msg.streaming ? (
           <div className="muted">正在输出…</div>
         ) : (
-          <div className="muted">模型没有返回内容</div>
+          <div className="assistant-error">没有收到模型输出</div>
         )}
       </div>
     </div>

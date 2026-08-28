@@ -34,11 +34,21 @@ describe('chat request shaping', () => {
       effort: 'high',
       baseUrl: OPENCODE_GO_BASE_URL,
       modelConfig: goFlash,
+      tools: [
+        {
+          name: 'datetime',
+          description: 'now',
+          parameters: {},
+          pluginId: 'datetime',
+          execute: async () => '',
+        },
+      ],
     });
     expect(body.thinking).toBeUndefined();
     expect(body.reasoning_effort).toBeUndefined();
     expect(body.max_tokens).toBeUndefined();
     expect(body.model).toBe('deepseek-v4-flash');
+    expect(body.tools).toBeUndefined();
   });
 
   it('still sends thinking to official DeepSeek and omits huge max_tokens', () => {

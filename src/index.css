@@ -186,6 +186,9 @@ textarea:focus, input:focus, select:focus {
 .assistant-col { max-width: 100%; }
 .md { font-size: 16px; overflow-wrap: anywhere; word-break: break-word; }
 .md p { margin: 0 0 10px; line-height: 1.65; }
+.assistant-error, .md.assistant-error, .md.assistant-error p {
+  color: var(--danger);
+}
 .md-pre, .think-pre {
   background: var(--code-bg);
   border: 1px solid var(--line);

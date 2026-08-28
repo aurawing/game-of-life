@@ -19,12 +19,23 @@ export function Composer(props: {
   const handle = useRef<VoiceHandle | null>(null);
   const ta = useRef<HTMLTextAreaElement>(null);
 
+  const [canStop, setCanStop] = useState(false);
+
   useEffect(() => {
     const el = ta.current;
     if (!el) return;
     el.style.height = 'auto';
     el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
   }, [text, partial]);
+
+  useEffect(() => {
+    if (!props.busy) {
+      setCanStop(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setCanStop(true), 450);
+    return () => window.clearTimeout(timer);
+  }, [props.busy]);
 
   useEffect(() => () => handle.current?.stop(), []);
 
@@ -152,9 +163,15 @@ export function Composer(props: {
           }}
         />
         {props.busy ? (
-          <button className="send stop" onClick={props.onStop} aria-label="停止">
-            <IconStop />
-          </button>
+          canStop ? (
+            <button className="send stop" onClick={props.onStop} aria-label="停止">
+              <IconStop />
+            </button>
+          ) : (
+            <button className="send" disabled aria-label="发送中">
+              <IconSend />
+            </button>
+          )
         ) : text.trim() || atts.length ? (
           <button className="send" onClick={submit} aria-label="发送">
             <IconSend />

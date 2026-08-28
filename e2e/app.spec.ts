@@ -45,19 +45,49 @@ test.describe('Aurai Android UI', () => {
       captured = route.request().postDataJSON() as Record<string, unknown>;
       await route.fulfill({
         status: 401,
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ error: { message: 'Missing API key' } }),
+        headers: { 'content-type': 'text/plain;charset=UTF-8' },
+        body: JSON.stringify({ type: 'error', error: { type: 'AuthError', message: 'Invalid API key.' } }),
       });
     });
 
     await page.getByPlaceholder('发送消息').fill('你好');
     await page.getByRole('button', { name: '发送' }).click();
-    await expect(page.getByText(/请求失败：.*Missing API key/)).toBeVisible();
+    await expect(page.getByText(/请求失败：.*Invalid API key/)).toBeVisible();
     expect(captured).toBeTruthy();
     expect(captured?.thinking).toBeUndefined();
     expect(captured?.max_tokens).toBeUndefined();
     expect(captured?.model).toBe('deepseek-v4-flash');
     expect(captured?.stream).toBe(true);
+  });
+
+  test('empty SSE falls back to non-stream JSON completion', async ({ page }) => {
+    await reset(page);
+    await openMenu(page);
+    await page.getByRole('button', { name: '设置' }).click();
+    await page.getByLabel('设置提供商').selectOption('opencode-go');
+    await page.getByLabel('API Key').fill('sk-go');
+    await closeOverlay(page);
+
+    await page.route(/\/chat\/completions$/, async (route) => {
+      const json = route.request().postDataJSON() as { stream?: boolean };
+      if (json.stream) {
+        await route.fulfill({
+          status: 200,
+          headers: { 'content-type': 'text/event-stream' },
+          body: 'data: [DONE]\n\n',
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ choices: [{ message: { content: '你好，我是 Aurai。' } }] }),
+      });
+    });
+
+    await page.getByPlaceholder('发送消息').fill('你好');
+    await page.getByRole('button', { name: '发送' }).click();
+    await expect(page.getByText('你好，我是 Aurai。')).toBeVisible();
   });
 
   test('send without api key shows setup hint', async ({ page }) => {

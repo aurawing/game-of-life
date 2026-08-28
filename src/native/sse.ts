@@ -120,19 +120,19 @@ export async function* streamChatCompletions(options: {
     yield { type: 'done' };
     return;
   }
-  if (!res.body) {
+  if (/event-stream/i.test(contentType) && res.body) {
+    yield* iterateSse(res.body, options.signal);
+    return;
+  }
+  const text = await res.text().catch(() => '');
+  if (!text.trim()) {
     yield { type: 'error', message: formatHttpError(res.status, 'empty body') };
     yield { type: 'done' };
     return;
   }
-  if (!/event-stream|text\/plain/i.test(contentType)) {
-    const text = await res.text().catch(() => '');
-    const { events } = eventsFromPayloads(payloadsFromChunk(text));
-    for (const ev of events) yield ev;
-    yield { type: 'done' };
-    return;
-  }
-  yield* iterateSse(res.body, options.signal);
+  const { events } = eventsFromPayloads(payloadsFromChunk(text));
+  for (const ev of events) yield ev;
+  yield { type: 'done' };
 }
 
 async function* streamViaNative(

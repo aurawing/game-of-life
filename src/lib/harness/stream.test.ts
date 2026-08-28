@@ -61,4 +61,18 @@ describe('thinking payload', () => {
     const payloads = parseSsePayloads('data: {"choices":[{"delta":{"content":"a"}}]}\ndata: {"choices":[{"delta":{"content":"b"}}]}');
     expect(payloads).toHaveLength(2);
   });
+
+  it('parses OpenCode Go auth errors and array content parts', () => {
+    expect(
+      extractStreamEvents({
+        type: 'error',
+        error: { type: 'AuthError', message: 'Invalid API key.' },
+      }),
+    ).toEqual([{ type: 'error', message: 'Invalid API key.' }]);
+    expect(
+      extractStreamEvents({
+        choices: [{ message: { content: [{ type: 'text', text: '你好呀' }] } }],
+      }),
+    ).toEqual([{ type: 'content', text: '你好呀' }]);
+  });
 });
