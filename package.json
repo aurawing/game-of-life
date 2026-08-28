@@ -1,0 +1,42 @@
+{
+  "name": "dsh-agent",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Android Agent App — Capacitor + DeepSeek Harness",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.app.json --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "android:add": "npx cap add android",
+    "android:sync": "npm run build && npx cap sync android && node scripts/patch-android.mjs",
+    "android:apk": "npm run android:sync && cd android && ./gradlew :app:assembleDebug",
+    "android:open": "npx cap open android"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.5.0",
+    "@capacitor/app": "8.1.1",
+    "@capacitor/camera": "8.2.3",
+    "@capacitor/core": "8.5.0",
+    "@capacitor/keyboard": "8.0.5",
+    "@capacitor/status-bar": "8.0.3",
+    "@capawesome/capacitor-file-picker": "8.0.4",
+    "nanoid": "^5.1.5",
+    "react": "^19.2.1",
+    "react-dom": "^19.2.1",
+    "zustand": "^5.0.8"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.5.0",
+    "@playwright/test": "^1.55.0",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "@types/node": "^24.5.2",
+    "@vitejs/plugin-react": "^6.1.1",
+    "typescript": "^5.9.3",
+    "vite": "^8.2.2",
+    "vitest": "^3.2.4"
+  }
+}
