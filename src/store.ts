@@ -158,8 +158,14 @@ export const useAppStore = create<AppState>()(
             thinkingEffort: clampEffort(state.thinkingEffort, nextConfig),
           });
         },
-        setProviderField: (id, patch) =>
-          set({ providers: get().providers.map((p) => (p.id === id ? { ...p, ...patch } : p)) }),
+        setProviderField: (id, patch) => {
+          const providers = get().providers.map((p) => (p.id === id ? { ...p, ...patch } : p));
+          const next: Partial<AppState> = { providers };
+          if (patch.models && get().activeProviderId === id && !patch.models.includes(get().activeModel)) {
+            next.activeModel = patch.models[0] ?? get().activeModel;
+          }
+          set(next);
+        },
         addProvider: () => {
           const created = {
             id: uid('prov'),
