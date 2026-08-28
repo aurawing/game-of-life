@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'ai.dsh.agent',
-  appName: 'DSH Agent',
+  appName: 'Aurai',
   webDir: 'dist',
   android: {
     allowMixedContent: true,

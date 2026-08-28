@@ -2,7 +2,7 @@
   "name": "dsh-agent",
   "private": true,
   "version": "1.0.0",
-  "description": "Android Agent App — Capacitor + DeepSeek Harness",
+  "description": "Aurai — Android Agent App",
   "type": "module",
   "scripts": {
     "dev": "vite",

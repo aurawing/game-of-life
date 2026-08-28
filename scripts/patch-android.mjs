@@ -85,7 +85,7 @@ if (existsSync(manifestPath)) {
 const stringsPath = join(android, 'app/src/main/res/values/strings.xml');
 if (existsSync(stringsPath)) {
   let xml = readFileSync(stringsPath, 'utf8');
-  xml = xml.replace(/>dsh-agent</, '>DSH Agent<').replace(/>DSH Agent</, '>DSH Agent<');
+  xml = xml.replace(/>dsh-agent</, '>Aurai<').replace(/>DSH Agent</, '>Aurai<').replace(/>Aurai</, '>Aurai<');
   writeFileSync(stringsPath, xml);
 }
 

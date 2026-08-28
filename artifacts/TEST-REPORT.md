@@ -1,4 +1,4 @@
-# DSH Agent 构建与功能测试报告
+# Aurai 构建与功能测试报告
 
 日期：2026-08-28（已按 pi.dev Provider / DeepSeek 蓝主题重新打包）
 
@@ -6,12 +6,12 @@
 
 | 项 | 值 |
 | --- | --- |
-| 文件 | `artifacts/dsh-agent-debug.apk` |
+| 文件 | `artifacts/aurai-debug.apk` |
 | 大小 | 8.4 MB |
 | 包名 | `ai.dsh.agent` |
 | 版本 | 1.0 (versionCode 1) |
 | minSdk / targetSdk | 24 / 36 |
-| 应用名 | DSH Agent |
+| 应用名 | Aurai |
 | 权限 | INTERNET, RECORD_AUDIO, CAMERA, READ_MEDIA_IMAGES, READ_EXTERNAL_STORAGE(max 32) |
 | 内含 | 最新 Web UI（`index-DGTeL2cO.js`）、原生 `ai.dsh.agent.SsePlugin` |
 

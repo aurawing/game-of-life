@@ -13,7 +13,7 @@ async function closeOverlay(page: Page) {
   await page.locator('.page .page-head').getByRole('button', { name: '关闭' }).click();
 }
 
-test.describe('DSH Agent Android UI', () => {
+test.describe('Aurai Android UI', () => {
   test('home, composer, voice and attach menu', async ({ page }) => {
     await reset(page);
     await expect(page.getByRole('heading', { name: '有什么可以帮忙的？' })).toBeVisible();

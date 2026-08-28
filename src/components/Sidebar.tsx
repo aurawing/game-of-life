@@ -53,8 +53,8 @@ export function Sidebar(props: {
       <aside className={`drawer ${props.open ? 'open' : ''}`}>
         <div className="drawer-head">
           <div>
-            <div className="brand">DSH Agent</div>
-            <div className="muted tiny">DeepSeek Harness · Android</div>
+            <div className="brand">Aurai</div>
+            <div className="muted tiny">Android Agent</div>
           </div>
           <button className="icon-btn" onClick={props.onClose} aria-label="关闭">
             <IconClose />

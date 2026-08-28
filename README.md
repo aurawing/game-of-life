@@ -1,4 +1,4 @@
-# DSH Agent（Android）
+# Aurai（Android）
 
 基于 **Capacitor 8.5.0** 与 **DeepSeek Harness（npm `@deepseek-ai/dsh@0.1.1-rc.2`）** 架构的 Android Agent App。界面参考 ChatGPT / Claude / Manus 的移动端：底部输入框、左侧会话抽屉、思维链默认收起、点击后从底部弹出实时展示。
 

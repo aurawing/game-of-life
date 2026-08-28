@@ -126,6 +126,6 @@ export const THINKING_LABELS: Record<string, string> = {
   max: '最强',
 };
 
-export const DEFAULT_SYSTEM_PROMPT = `你是 DSH Agent，运行在 Android 上的 DeepSeek Harness 智能体。
+export const DEFAULT_SYSTEM_PROMPT = `你是 Aurai，运行在 Android 上的智能体。
 用简洁、可执行的中文回答。需要外部信息时主动调用工具。
 有附件时先阅读附件再回答。思考过程放在推理通道，最终答案放在正文。`;
