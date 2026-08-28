@@ -52,8 +52,8 @@ if (existsSync(manifestPath)) {
     'android.permission.READ_EXTERNAL_STORAGE',
   ];
   for (const perm of perms) {
-    const tag = `<uses-permission android:name="${perm}" />`;
-    if (!manifest.includes(tag)) {
+    if (!manifest.includes(`android:name="${perm}"`)) {
+      const tag = `<uses-permission android:name="${perm}" />`;
       manifest = manifest.replace('<application', `${tag}\n    <application`);
     }
   }

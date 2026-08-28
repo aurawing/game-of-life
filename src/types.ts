@@ -106,7 +106,7 @@ export interface AppSettings {
 }
 
 export const THINKING_LABELS: Record<ThinkingEffort, string> = {
-  none: '关闭',
+  none: '不思考',
   low: '低',
   medium: '中',
   high: '高',

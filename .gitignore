@@ -15,4 +15,7 @@ android/local.properties
 android/*.iml
 .idea
 *.iml
-.vscode
+test-results
+playwright-report
+blob-report
+android/local.properties

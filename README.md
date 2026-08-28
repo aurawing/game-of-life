@@ -38,15 +38,27 @@ npm run dev
 
 ## 打 Android 包
 
-需要 Android SDK / Android Studio。本仓库在 `npm run android:sync` 时生成并补丁 `android/`：
+需要 Android SDK（compileSdk 36）。一键：
 
 ```bash
-npm install
-npm run build
-npx cap add android
-npm run android:sync
-npx cap open android
+export ANDROID_HOME=$HOME/android-sdk
+echo "sdk.dir=$ANDROID_HOME" > android/local.properties
+npm run android:apk
 ```
+
+产物：
+
+- `android/app/build/outputs/apk/debug/app-debug.apk`
+- 仓库内副本 `artifacts/dsh-agent-debug.apk`（包名 `ai.dsh.agent`，minSdk 24）
+
+## 功能测试
+
+```bash
+npm test          # 单元：SSE / 工具 / 市场
+npm run test:e2e  # Playwright Pixel 7：会话、设置、插件、MCP、思维链、流式、附件、语音入口
+```
+
+测试覆盖见 `artifacts/TEST-REPORT.md`。
 
 原生模块 `SsePlugin` 用 `HttpURLConnection` 做 SSE，避开 WebView CORS，保证思维链与正文实时输出。
 
