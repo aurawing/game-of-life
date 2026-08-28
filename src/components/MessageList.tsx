@@ -16,7 +16,7 @@ export function MessageList(props: {
     <div className="msg-list">
       {props.messages.length === 0 && (
         <div className="hero">
-          <div className="hero-mark">🐋</div>
+          <img className="hero-mark" src="/icon-192.png" alt="" />
           <h1>有什么可以帮忙的？</h1>
           <p>自定义模型、思维强度、插件中心与 MCP，都在左侧菜单。</p>
         </div>
