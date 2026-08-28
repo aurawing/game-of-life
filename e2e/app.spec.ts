@@ -28,6 +28,38 @@ test.describe('Aurai Android UI', () => {
     await expect(page.getByRole('button', { name: /文本片段/ })).toBeVisible();
   });
 
+  test('OpenCode Go DeepSeek request omits thinking fields and surfaces json errors', async ({ page }) => {
+    await reset(page);
+    await openMenu(page);
+    await page.getByRole('button', { name: '设置' }).click();
+    await page.getByLabel('设置提供商').selectOption('opencode-go');
+    await page.getByLabel('API Key').fill('sk-go');
+    await page.getByLabel('当前模型').selectOption('deepseek-v4-flash');
+    await expect(page.getByText('该接口不接受思维强度参数，按服务端默认推理。')).toBeVisible();
+    await closeOverlay(page);
+    await expect(page.locator('.model-title')).toContainText('DeepSeek V4 Flash');
+    await expect(page.getByText(/OpenCode Go/)).toBeVisible();
+
+    let captured: Record<string, unknown> | null = null;
+    await page.route(/\/chat\/completions$/, async (route) => {
+      captured = route.request().postDataJSON() as Record<string, unknown>;
+      await route.fulfill({
+        status: 401,
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ error: { message: 'Missing API key' } }),
+      });
+    });
+
+    await page.getByPlaceholder('发送消息').fill('你好');
+    await page.getByRole('button', { name: '发送' }).click();
+    await expect(page.getByText(/请求失败：.*Missing API key/)).toBeVisible();
+    expect(captured).toBeTruthy();
+    expect(captured?.thinking).toBeUndefined();
+    expect(captured?.max_tokens).toBeUndefined();
+    expect(captured?.model).toBe('deepseek-v4-flash');
+    expect(captured?.stream).toBe(true);
+  });
+
   test('send without api key shows setup hint', async ({ page }) => {
     await reset(page);
     await page.getByPlaceholder('发送消息').fill('你好，帮我写一首诗');
@@ -69,6 +101,7 @@ test.describe('Aurai Android UI', () => {
     await expect(page.getByText(/档位来自/)).toHaveCount(0);
     await expect(page.getByText('思维强度', { exact: true })).toBeVisible();
     await expect(page.getByLabel('设置提供商')).toContainText('DeepSeek');
+    await expect(page.getByLabel('设置提供商')).toContainText('OpenCode Go');
     await expect(page.getByText('推理 支持')).toBeVisible();
     await expect(page.getByText('视觉 不支持')).toBeVisible();
     await expect(page.getByText('上下文 1M', { exact: true })).toBeVisible();
@@ -81,10 +114,10 @@ test.describe('Aurai Android UI', () => {
     await page.getByLabel('API Key').fill('ollama');
     await page.getByLabel('模型列表（逗号分隔）').fill('llama3, qwen2.5');
     await expect(page.getByLabel('当前模型')).toContainText('llama3');
-    await page.getByRole('button', { name: '低' }).click();
+    await expect(page.getByText('该接口不接受思维强度参数，按服务端默认推理。')).toBeVisible();
     await page.locator('textarea.prompt').first().fill('你是测试助手。');
     await closeOverlay(page);
-    await expect(page.getByText(/思维 低/)).toBeVisible();
+    await expect(page.getByText(/思维 默认推理/)).toBeVisible();
     await expect(page.locator('.model-title')).toContainText('llama3');
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   });

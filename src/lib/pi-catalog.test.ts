@@ -23,6 +23,8 @@ describe('pi catalog', () => {
       contextWindow: 1000000,
     });
     expect(providerDisplayName('deepseek')).toBe('DeepSeek');
+    expect(providerDisplayName('opencode-go')).toBe('OpenCode Go');
+    expect(bundledCatalog['opencode-go']['deepseek-v4-flash'].baseUrl).toContain('opencode.ai/zen/go/v1');
   });
 
   it('reads SHOW CONFIGURATION fields for flash and gpt-4o', () => {
@@ -68,6 +70,7 @@ describe('pi catalog', () => {
       models: ['llama3'],
     });
     expect(merged.some((p) => p.id === 'anthropic')).toBe(true);
+    expect(merged.some((p) => p.id === 'opencode-go')).toBe(true);
   });
 
   it('synthesizes config for a custom provider', () => {
@@ -84,6 +87,7 @@ describe('pi catalog', () => {
     const config = resolveModelConfig({}, provider, 'llama3');
     expect(config?.reasoning).toBe(true);
     expect(supportsVision(config)).toBe(false);
-    expect(availableThinkingLevels(config)).toEqual(['none', 'low', 'medium', 'high', 'max']);
+    expect(config?.compat?.thinkingFormat).toBe('none');
+    expect(availableThinkingLevels(config)).toEqual([]);
   });
 });

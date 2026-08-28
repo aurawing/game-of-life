@@ -1,6 +1,8 @@
 import bundled from '../data/pi-models.json';
+import { opencodeGoCatalog, OPENCODE_GO_PROVIDER_ID } from '../data/opencode-go';
 import { httpJson } from './http';
 import type { Provider, ThinkingEffort } from '../types';
+import { isDeepSeekOfficialUrl, isOpenCodeGoUrl, normalizeChatBaseUrl } from './provider-urls';
 
 export const PI_MODELS_API = 'https://pi.dev/api/models';
 export const PI_MODELS_PAGE = 'https://pi.dev/models';
@@ -41,6 +43,7 @@ export type PiCatalog = Record<string, Record<string, PiModelConfig>>;
 
 export const PROVIDER_NAMES: Record<string, string> = {
   deepseek: 'DeepSeek',
+  [OPENCODE_GO_PROVIDER_ID]: 'OpenCode Go',
   openai: 'OpenAI',
   anthropic: 'Anthropic',
   google: 'Google',
@@ -61,6 +64,7 @@ export const PROVIDER_NAMES: Record<string, string> = {
 
 const PROVIDER_ORDER = [
   'deepseek',
+  OPENCODE_GO_PROVIDER_ID,
   'openai',
   'anthropic',
   'google',
@@ -81,7 +85,11 @@ const PROVIDER_ORDER = [
 
 const DEFAULT_LEVELS: ThinkingEffort[] = ['none', 'low', 'medium', 'high', 'max'];
 
-export const bundledCatalog = bundled as PiCatalog;
+export function withExtraCatalog(catalog: PiCatalog): PiCatalog {
+  return { ...catalog, ...opencodeGoCatalog };
+}
+
+export const bundledCatalog = withExtraCatalog(bundled as PiCatalog);
 
 export function isCatalog(value: unknown): value is PiCatalog {
   if (!value || typeof value !== 'object') return false;
@@ -158,6 +166,7 @@ export function thinkingLabel(effort: string): string {
 
 export function availableThinkingLevels(config?: PiModelConfig | null): ThinkingEffort[] {
   if (config && !config.reasoning) return [];
+  if (config?.compat?.thinkingFormat === 'none') return [];
   const map = config?.thinkingLevelMap;
   if (!map) return [...DEFAULT_LEVELS];
   const levels = Object.entries(map)
@@ -179,24 +188,31 @@ export function clampEffort(effort: string, config?: PiModelConfig | null): Thin
 }
 
 export function customModelConfig(provider: Provider, model: string): PiModelConfig {
+  const official = isDeepSeekOfficialUrl(provider.baseUrl);
+  const go = isOpenCodeGoUrl(provider.baseUrl);
+  const reasoning = provider.reasoning ?? official;
   return {
     id: model,
     name: model,
     api: 'openai-completions',
     baseUrl: provider.baseUrl,
     provider: provider.id,
-    reasoning: provider.reasoning ?? true,
+    reasoning,
     input: provider.vision === false ? ['text'] : ['text', 'image'],
     contextWindow: provider.contextWindow ?? 128000,
     maxTokens: provider.maxTokens ?? 8192,
-    compat: { thinkingFormat: 'deepseek', maxTokensField: 'max_tokens' },
-    thinkingLevelMap: {
-      none: 'none',
-      low: 'low',
-      medium: 'medium',
-      high: 'high',
-      max: 'max',
-    },
+    compat: official
+      ? { thinkingFormat: 'deepseek', maxTokensField: 'max_tokens' }
+      : { thinkingFormat: 'none', maxTokensField: go ? undefined : 'max_tokens' },
+    thinkingLevelMap: official
+      ? {
+          none: 'none',
+          low: 'low',
+          medium: 'medium',
+          high: 'high',
+          max: 'max',
+        }
+      : undefined,
   };
 }
 
@@ -221,10 +237,10 @@ export function resolveRequestBaseUrl(
   provider: Provider,
   config?: PiModelConfig | null,
 ): string {
-  if (provider.kind === 'custom' || !config?.baseUrl) return provider.baseUrl;
+  if (provider.kind === 'custom' || !config?.baseUrl) return normalizeChatBaseUrl(provider.baseUrl);
   const urls = providerUrls(catalog, provider.id);
-  if (!provider.baseUrl || urls.has(provider.baseUrl)) return config.baseUrl;
-  return provider.baseUrl;
+  if (!provider.baseUrl || urls.has(provider.baseUrl)) return normalizeChatBaseUrl(config.baseUrl);
+  return normalizeChatBaseUrl(provider.baseUrl);
 }
 
 export function stubCatalogProvider(id: string, catalog: PiCatalog, prev?: Provider): Provider {
@@ -260,7 +276,7 @@ export async function loadPiCatalog(): Promise<{ catalog: PiCatalog; source: 'li
       },
     });
     if (res.status >= 200 && res.status < 300 && isCatalog(res.data)) {
-      return { catalog: res.data, source: 'live' };
+      return { catalog: withExtraCatalog(res.data), source: 'live' };
     }
   } catch {
     // bundled fallback

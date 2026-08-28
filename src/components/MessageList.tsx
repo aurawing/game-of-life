@@ -90,7 +90,9 @@ function MessageBubble({
           <div className="md" dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
         ) : msg.streaming ? (
           <div className="muted">正在输出…</div>
-        ) : null}
+        ) : (
+          <div className="muted">模型没有返回内容</div>
+        )}
       </div>
     </div>
   );

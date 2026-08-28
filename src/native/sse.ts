@@ -1,8 +1,16 @@
 import { registerPlugin } from '@capacitor/core';
-import { extractStreamEvents, iterateSse, parseSseBlock, type StreamEvent } from '../lib/harness/stream';
+import {
+  eventsFromPayloads,
+  iterateSse,
+  payloadsFromChunk,
+  polishErrorMessage,
+  formatHttpError,
+  type StreamEvent,
+} from '../lib/harness/stream';
 
 export interface NativeSsePlugin {
   start(options: {
+    id?: string;
     url: string;
     method?: string;
     headers?: Record<string, string>;
@@ -16,6 +24,67 @@ export interface NativeSsePlugin {
 }
 
 const NativeSse = registerPlugin<NativeSsePlugin>('Sse');
+
+type Session = {
+  queue: StreamEvent[];
+  finished: boolean;
+  notify: (() => void) | null;
+};
+
+const sessions = new Map<string, Session>();
+let busReady: Promise<void> | null = null;
+
+function wake(session: Session) {
+  session.notify?.();
+  session.notify = null;
+}
+
+function sessionOf(id: string): Session {
+  let session = sessions.get(id);
+  if (!session) {
+    session = { queue: [], finished: false, notify: null };
+    sessions.set(id, session);
+  }
+  return session;
+}
+
+function ensureBus(): Promise<void> {
+  if (!busReady) {
+    busReady = (async () => {
+      await NativeSse.addListener('chunk', (ev) => {
+        const session = sessions.get(ev.id);
+        if (!session || !ev.data) return;
+        const { events, done } = eventsFromPayloads(payloadsFromChunk(ev.data));
+        session.queue.push(...events);
+        if (done) {
+          session.queue.push({ type: 'done' });
+          session.finished = true;
+        }
+        wake(session);
+      });
+      await NativeSse.addListener('done', (ev) => {
+        const session = sessions.get(ev.id);
+        if (!session) return;
+        session.queue.push({ type: 'done' });
+        session.finished = true;
+        wake(session);
+      });
+      await NativeSse.addListener('error', (ev) => {
+        const session = sessions.get(ev.id);
+        if (!session) return;
+        session.queue.push({ type: 'error', message: polishErrorMessage(ev.message ?? 'native sse error') });
+        session.queue.push({ type: 'done' });
+        session.finished = true;
+        wake(session);
+      });
+    })();
+  }
+  return busReady;
+}
+
+function newStreamId(): string {
+  return globalThis.crypto?.randomUUID?.() ?? `sse_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
 
 export async function* streamChatCompletions(options: {
   url: string;
@@ -44,9 +113,22 @@ export async function* streamChatCompletions(options: {
     body: payload,
     signal: options.signal,
   });
-  if (!res.ok || !res.body) {
+  const contentType = res.headers.get('content-type') ?? '';
+  if (!res.ok) {
     const text = await res.text().catch(() => '');
-    yield { type: 'error', message: `HTTP ${res.status}: ${text.slice(0, 400)}` };
+    yield { type: 'error', message: formatHttpError(res.status, text) };
+    yield { type: 'done' };
+    return;
+  }
+  if (!res.body) {
+    yield { type: 'error', message: formatHttpError(res.status, 'empty body') };
+    yield { type: 'done' };
+    return;
+  }
+  if (!/event-stream|text\/plain/i.test(contentType)) {
+    const text = await res.text().catch(() => '');
+    const { events } = eventsFromPayloads(payloadsFromChunk(text));
+    for (const ev of events) yield ev;
     yield { type: 'done' };
     return;
   }
@@ -59,60 +141,29 @@ async function* streamViaNative(
   body: string,
   signal?: AbortSignal,
 ): AsyncGenerator<StreamEvent> {
-  const started = await NativeSse.start({ url, method: 'POST', headers, body });
-  const queue: StreamEvent[] = [];
-  let notify: (() => void) | null = null;
-  let finished = false;
-
-  const wake = () => notify?.();
-  const chunkHandle = await NativeSse.addListener('chunk', (ev) => {
-    if (ev.id !== started.id || !ev.data) return;
-    const parsed = parseSseBlock(`data: ${ev.data}`);
-    if (parsed === 'DONE') {
-      queue.push({ type: 'done' });
-      finished = true;
-      wake();
-      return;
-    }
-    if (parsed) queue.push(...extractStreamEvents(parsed));
-    wake();
-  });
-  const doneHandle = await NativeSse.addListener('done', (ev) => {
-    if (ev.id !== started.id) return;
-    queue.push({ type: 'done' });
-    finished = true;
-    wake();
-  });
-  const errHandle = await NativeSse.addListener('error', (ev) => {
-    if (ev.id !== started.id) return;
-    queue.push({ type: 'error', message: ev.message ?? 'native sse error' });
-    queue.push({ type: 'done' });
-    finished = true;
-    wake();
-  });
-
+  await ensureBus();
+  const id = newStreamId();
+  const session = sessionOf(id);
   const abort = () => {
-    void NativeSse.stop({ id: started.id });
-    finished = true;
-    wake();
+    void NativeSse.stop({ id });
+    session.finished = true;
+    wake(session);
   };
   signal?.addEventListener('abort', abort, { once: true });
-
   try {
-    while (!finished || queue.length) {
-      if (!queue.length) {
+    await NativeSse.start({ id, url, method: 'POST', headers, body });
+    while (!session.finished || session.queue.length) {
+      if (!session.queue.length) {
         await new Promise<void>((resolve) => {
-          notify = resolve;
+          session.notify = resolve;
         });
       }
-      const ev = queue.shift();
+      const ev = session.queue.shift();
       if (ev) yield ev;
     }
   } finally {
     signal?.removeEventListener('abort', abort);
-    await chunkHandle.remove();
-    await doneHandle.remove();
-    await errHandle.remove();
-    await NativeSse.stop({ id: started.id }).catch(() => undefined);
+    sessions.delete(id);
+    await NativeSse.stop({ id }).catch(() => undefined);
   }
 }

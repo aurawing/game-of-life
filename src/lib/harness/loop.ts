@@ -3,10 +3,11 @@ import type { Attachment, ChatMessage, McpServer, Provider, Session, ThinkingEff
 import type { PiCatalog, PiModelConfig } from '../pi-catalog';
 import { resolveRequestBaseUrl, supportsVision } from '../pi-catalog';
 import { uid } from '../id';
-import { builtinTools, mcpToolToDefinition, parseToolArgs, toOpenAiTools, type ToolDefinition } from './tools';
+import { builtinTools, mcpToolToDefinition, parseToolArgs, type ToolDefinition } from './tools';
 import { callMcpTool } from './mcp';
-import { mergeToolCalls, thinkingPayload } from './stream';
+import { mergeToolCalls } from './stream';
 import { streamChatCompletions } from '../../native/sse';
+import { EMPTY_MODEL_REPLY, authHeaders, buildChatBody, chatCompletionsUrl } from './request';
 
 export interface LoopHooks {
   onAssistant: (msg: ChatMessage) => void;
@@ -183,19 +184,15 @@ async function streamAssistant(opts: {
   const baseUrl = opts.catalog
     ? resolveRequestBaseUrl(opts.catalog, opts.provider, opts.modelConfig)
     : opts.modelConfig?.baseUrl || opts.provider.baseUrl;
-  const url = joinUrl(baseUrl, '/chat/completions');
-  const think = thinkingPayload(opts.effort, opts.modelConfig);
-  const body: Record<string, unknown> = {
+  const url = chatCompletionsUrl(baseUrl);
+  const body = buildChatBody({
     model: opts.model,
     messages: opts.messages,
-    stream: true,
-    ...think,
-  };
-  const maxField = opts.modelConfig?.compat?.maxTokensField;
-  if (maxField && opts.modelConfig?.maxTokens) {
-    body[maxField] = opts.modelConfig.maxTokens;
-  }
-  if (opts.tools.length) body.tools = toOpenAiTools(opts.tools);
+    effort: opts.effort,
+    baseUrl,
+    modelConfig: opts.modelConfig,
+    tools: opts.tools,
+  });
 
   let toolAcc: { id?: string; name?: string; arguments: string }[] = [];
   try {
@@ -245,21 +242,12 @@ async function streamAssistant(opts: {
         arguments: t.arguments,
       })) as ToolCall[];
   }
+  const namedTools = msg.toolCalls?.some((t) => t.name) ?? false;
+  if (!msg.content.trim() && msg.reasoning?.trim() && !namedTools) {
+    msg.content = msg.reasoning;
+  } else if (!opts.signal?.aborted && !msg.content.trim() && !msg.reasoning?.trim() && !namedTools) {
+    msg.content = EMPTY_MODEL_REPLY;
+  }
   opts.onUpdate({ ...msg });
   return msg;
-}
-
-function joinUrl(base: string, path: string): string {
-  return `${base.replace(/\/+$/, '')}${path}`;
-}
-
-function authHeaders(provider: Provider, config?: PiModelConfig | null): Record<string, string> {
-  const headers: Record<string, string> = { ...(config?.headers ?? {}) };
-  if (config?.api === 'anthropic-messages') {
-    if (provider.apiKey) headers['x-api-key'] = provider.apiKey;
-    if (!headers['anthropic-version']) headers['anthropic-version'] = '2023-06-01';
-    return headers;
-  }
-  if (provider.apiKey) headers.Authorization = `Bearer ${provider.apiKey}`;
-  return headers;
 }

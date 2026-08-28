@@ -11,20 +11,89 @@ interface ToolAcc {
   arguments: string;
 }
 
-export function parseSseBlock(block: string): unknown | 'DONE' | null {
+function tryJson(text: string): unknown | undefined {
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+export function extractErrorMessage(json: unknown): string | null {
+  if (typeof json === 'string' && json.trim()) return json.trim();
+  if (!json || typeof json !== 'object') return null;
+  const obj = json as Record<string, unknown>;
+  if (typeof obj.error === 'string' && obj.error.trim()) return obj.error;
+  if (obj.error && typeof obj.error === 'object') {
+    const err = obj.error as Record<string, unknown>;
+    if (typeof err.message === 'string' && err.message.trim()) return err.message;
+    try {
+      return JSON.stringify(err);
+    } catch {
+      return 'error';
+    }
+  }
+  if (typeof obj.message === 'string' && obj.message.trim()) return obj.message;
+  return null;
+}
+
+export function formatHttpError(status: number | undefined, body: string): string {
+  const trimmed = (body || '').trim();
+  const parsed = trimmed ? tryJson(trimmed) : undefined;
+  const detail = extractErrorMessage(parsed) ?? trimmed.slice(0, 400) ?? '';
+  if (status != null && status > 0) {
+    return detail ? `HTTP ${status}: ${detail}` : `HTTP ${status}`;
+  }
+  return detail || '请求失败';
+}
+
+export function polishErrorMessage(message: string): string {
+  const match = message.match(/^HTTP\s+(\d+)\s*:\s*([\s\S]*)$/i);
+  if (match) return formatHttpError(Number(match[1]), match[2]);
+  const parsed = tryJson(message);
+  const extracted = extractErrorMessage(parsed);
+  return extracted || message;
+}
+
+export function parseSsePayloads(block: string): Array<unknown | 'DONE'> {
   const dataLines = block
     .split(/\r?\n/)
     .filter((l) => l.startsWith('data:'))
     .map((l) => l.slice(5).trimStart());
-  if (!dataLines.length) return null;
-  const payload = dataLines.join('\n').trim();
-  if (!payload) return null;
-  if (payload === '[DONE]') return 'DONE';
-  try {
-    return JSON.parse(payload) as unknown;
-  } catch {
-    return null;
+  const payload = (dataLines.length ? dataLines.join('\n') : block).trim();
+  if (!payload) return [];
+  if (payload === '[DONE]') return ['DONE'];
+  const json = tryJson(payload);
+  if (json !== undefined) return [json];
+  const items: Array<unknown | 'DONE'> = [];
+  for (const line of payload.split(/\r?\n/)) {
+    const t = line.trim();
+    if (!t) continue;
+    if (t === '[DONE]') {
+      items.push('DONE');
+      continue;
+    }
+    const row = tryJson(t);
+    if (row !== undefined) items.push(row);
   }
+  return items;
+}
+
+export function parseSseBlock(block: string): unknown | 'DONE' | null {
+  const items = parseSsePayloads(block);
+  if (!items.length) return null;
+  return items[0];
+}
+
+export function payloadsFromChunk(data: string): Array<unknown | 'DONE'> {
+  const trimmed = data.trim();
+  if (!trimmed) return [];
+  if (trimmed === '[DONE]') return ['DONE'];
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    const json = tryJson(trimmed);
+    if (json !== undefined) return [json];
+  }
+  return parseSsePayloads(trimmed.includes('data:') ? trimmed : `data: ${trimmed}`);
 }
 
 export function extractStreamEvents(json: unknown): StreamEvent[] {
@@ -32,19 +101,15 @@ export function extractStreamEvents(json: unknown): StreamEvent[] {
   if (!json || typeof json !== 'object') return events;
   const obj = json as Record<string, unknown>;
 
-  if (typeof obj.error === 'string') {
-    events.push({ type: 'error', message: obj.error });
-    return events;
-  }
-  if (obj.error && typeof obj.error === 'object') {
-    const err = obj.error as Record<string, unknown>;
-    events.push({ type: 'error', message: String(err.message ?? JSON.stringify(err)) });
+  const err = extractErrorMessage(obj);
+  if (err && (obj.error != null || (typeof obj.message === 'string' && !obj.choices))) {
+    events.push({ type: 'error', message: err });
     return events;
   }
 
   const choices = obj.choices as unknown[] | undefined;
   const choice = Array.isArray(choices) ? (choices[0] as Record<string, unknown> | undefined) : undefined;
-  const delta = (choice?.delta ?? choice?.message ?? obj.delta) as Record<string, unknown> | undefined;
+  const delta = (choice?.delta ?? choice?.message ?? obj.delta ?? obj.message) as Record<string, unknown> | undefined;
   if (delta) {
     const reasoning = delta.reasoning_content ?? delta.reasoning;
     if (typeof reasoning === 'string' && reasoning) {
@@ -69,6 +134,19 @@ export function extractStreamEvents(json: unknown): StreamEvent[] {
     }
   }
   return events;
+}
+
+export function eventsFromPayloads(payloads: Array<unknown | 'DONE'>): { events: StreamEvent[]; done: boolean } {
+  const events: StreamEvent[] = [];
+  let done = false;
+  for (const parsed of payloads) {
+    if (parsed === 'DONE') {
+      done = true;
+      break;
+    }
+    events.push(...extractStreamEvents(parsed));
+  }
+  return { events, done };
 }
 
 export function mergeToolCalls(acc: ToolAcc[], ev: Extract<StreamEvent, { type: 'tool_call' }>): ToolAcc[] {
@@ -98,21 +176,21 @@ export async function* iterateSse(
       const parts = buffer.split(/\r?\n\r?\n/);
       buffer = parts.pop() ?? '';
       for (const part of parts) {
-        const parsed = parseSseBlock(part);
-        if (parsed === 'DONE') {
+        const { events, done: finished } = eventsFromPayloads(parseSsePayloads(part));
+        for (const ev of events) yield ev;
+        if (finished) {
           yield { type: 'done' };
           return;
-        }
-        if (parsed) {
-          const events = extractStreamEvents(parsed);
-          for (const ev of events) yield ev;
         }
       }
     }
     if (buffer.trim()) {
-      const parsed = parseSseBlock(buffer);
-      if (parsed && parsed !== 'DONE') {
-        for (const ev of extractStreamEvents(parsed)) yield ev;
+      const payloads = buffer.includes('data:') ? parseSsePayloads(buffer) : payloadsFromChunk(buffer);
+      const { events, done } = eventsFromPayloads(payloads);
+      for (const ev of events) yield ev;
+      if (done) {
+        yield { type: 'done' };
+        return;
       }
     }
     yield { type: 'done' };
@@ -129,15 +207,10 @@ export function thinkingPayload(
     thinkingLevelMap?: Record<string, string | null>;
   } | null,
 ): Record<string, unknown> {
-  if (!config) {
-    if (effort === 'none' || effort === 'off') {
-      return { thinking: { type: 'disabled' } };
-    }
-    const mapped = effort === 'medium' ? 'high' : effort;
-    return { thinking: { type: 'enabled' }, reasoning_effort: mapped };
-  }
+  if (!config) return {};
   if (config.reasoning === false) return {};
   const format = config.compat?.thinkingFormat ?? 'openai';
+  if (format === 'none') return {};
   const map = config.thinkingLevelMap;
   const off = effort === 'none' || effort === 'off';
   if (off) {

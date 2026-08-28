@@ -194,7 +194,9 @@ export function SettingsView({ onClose }: { onClose: () => void }) {
               ))}
             </div>
           ) : (
-            <p className="muted tiny">当前模型不支持推理，已隐藏思维强度。</p>
+            <p className="muted tiny">
+              {reasoning ? '该接口不接受思维强度参数，按服务端默认推理。' : '当前模型不支持推理，已隐藏思维强度。'}
+            </p>
           )}
         </section>
 

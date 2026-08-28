@@ -48,7 +48,7 @@ export default function App() {
   const vision = supportsVision(modelConfig);
   const reasoning = supportsReasoning(modelConfig);
   const levels = availableThinkingLevels(modelConfig);
-  const effortText = reasoning && levels.length ? thinkingLabel(effort) : '无推理';
+  const effortText = levels.length ? thinkingLabel(effort) : reasoning ? '默认推理' : '无推理';
   const modelTitle = modelConfig?.name || model;
   const caps = [
     activeProvider?.name,

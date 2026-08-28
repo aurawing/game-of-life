@@ -25,6 +25,7 @@ import java.util.concurrent.Executors;
 
 @CapacitorPlugin(name = "Sse")
 public class SsePlugin extends Plugin {
+    private static final int ERROR_BODY_LIMIT = 4000;
     private final ExecutorService executor = Executors.newCachedThreadPool();
     private final Handler main = new Handler(Looper.getMainLooper());
     private final Map<String, HttpURLConnection> connections = new ConcurrentHashMap<>();
@@ -36,7 +37,10 @@ public class SsePlugin extends Plugin {
             call.reject("url required");
             return;
         }
-        String id = UUID.randomUUID().toString();
+        String id = call.getString("id");
+        if (id == null || id.isEmpty()) {
+            id = UUID.randomUUID().toString();
+        }
         String method = call.getString("method", "POST");
         String body = call.getString("body", "");
         JSObject headers = call.getObject("headers", new JSObject());
@@ -44,7 +48,8 @@ public class SsePlugin extends Plugin {
         ret.put("id", id);
         call.resolve(ret);
 
-        executor.execute(() -> stream(id, url, method, headers, body));
+        final String streamId = id;
+        executor.execute(() -> stream(streamId, url, method, headers, body));
     }
 
     @PluginMethod
@@ -87,6 +92,23 @@ public class SsePlugin extends Plugin {
                 emitDone(id);
                 return;
             }
+            String contentType = conn.getContentType() == null ? "" : conn.getContentType().toLowerCase();
+            boolean jsonBody = contentType.contains("json") && !contentType.contains("event-stream");
+            if (code >= 400 || jsonBody) {
+                String raw = readLimited(stream, ERROR_BODY_LIMIT);
+                if (code >= 400) {
+                    emit(id, "error", "HTTP " + code + ": " + raw);
+                    emitDone(id);
+                    return;
+                }
+                if (raw.trim().isEmpty()) {
+                    emitDone(id);
+                    return;
+                }
+                emitChunk(id, raw);
+                emitDone(id);
+                return;
+            }
             BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8));
             String line;
             StringBuilder block = new StringBuilder();
@@ -111,8 +133,21 @@ public class SsePlugin extends Plugin {
         }
     }
 
+    private String readLimited(InputStream stream, int limit) throws Exception {
+        BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8));
+        StringBuilder sb = new StringBuilder();
+        String line;
+        while ((line = reader.readLine()) != null) {
+            if (sb.length() > 0) sb.append('\n');
+            sb.append(line);
+            if (sb.length() >= limit) break;
+        }
+        if (sb.length() > limit) return sb.substring(0, limit);
+        return sb.toString();
+    }
+
     private void flushBlock(String id, String block) {
-        String[] lines = block.split("\n");
+        String[] lines = block.split("\n", -1);
         StringBuilder data = new StringBuilder();
         for (String line : lines) {
             if (line.startsWith("data:")) {
@@ -120,10 +155,20 @@ public class SsePlugin extends Plugin {
                 data.append(line.substring(5).trim());
             }
         }
-        if (data.length() == 0) return;
+        if (data.length() == 0) {
+            String trimmed = block.trim();
+            if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+                emitChunk(id, trimmed);
+            }
+            return;
+        }
+        emitChunk(id, data.toString());
+    }
+
+    private void emitChunk(String id, String data) {
         JSObject payload = new JSObject();
         payload.put("id", id);
-        payload.put("data", data.toString());
+        payload.put("data", data);
         main.post(() -> notifyListeners("chunk", payload));
     }
 
