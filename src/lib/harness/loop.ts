@@ -1,5 +1,7 @@
 import { Capacitor } from '@capacitor/core';
 import type { Attachment, ChatMessage, McpServer, Provider, Session, ThinkingEffort, ToolCall } from '../../types';
+import type { PiCatalog, PiModelConfig } from '../pi-catalog';
+import { resolveRequestBaseUrl, supportsVision } from '../pi-catalog';
 import { uid } from '../id';
 import { builtinTools, mcpToolToDefinition, parseToolArgs, toOpenAiTools, type ToolDefinition } from './tools';
 import { callMcpTool } from './mcp';
@@ -11,10 +13,15 @@ export interface LoopHooks {
   onTool: (msg: ChatMessage) => void;
 }
 
-function contentParts(message: ChatMessage): unknown {
-  const images = (message.attachments ?? []).filter((a) => a.kind === 'image' && a.dataUrl);
+function contentParts(message: ChatMessage, vision: boolean): unknown {
+  const imageAtts = (message.attachments ?? []).filter((a) => a.kind === 'image' && a.dataUrl);
+  const images = vision ? imageAtts : [];
+  const skippedImages = vision
+    ? []
+    : imageAtts.map((a) => `\n[图片附件 ${a.name}：当前模型不支持视觉输入]`);
   const texts = [
     message.content,
+    ...skippedImages,
     ...(message.attachments ?? [])
       .filter((a) => a.kind !== 'image')
       .map((a) => `\n[附件 ${a.name}]\n${a.text ?? `(binary ${a.mime}, ${a.size} bytes)`}`),
@@ -29,7 +36,12 @@ function contentParts(message: ChatMessage): unknown {
   ];
 }
 
-export function deriveMessages(systemPrompt: string, history: ChatMessage[]): unknown[] {
+export function deriveMessages(
+  systemPrompt: string,
+  history: ChatMessage[],
+  opts: { vision?: boolean } = {},
+): unknown[] {
+  const vision = opts.vision !== false;
   const messages: unknown[] = [{ role: 'system', content: systemPrompt }];
   for (const m of history) {
     if (m.role === 'tool') {
@@ -52,7 +64,7 @@ export function deriveMessages(systemPrompt: string, history: ChatMessage[]): un
       });
       continue;
     }
-    messages.push({ role: m.role, content: contentParts(m) });
+    messages.push({ role: m.role, content: contentParts(m, vision) });
   }
   return messages;
 }
@@ -67,6 +79,8 @@ export async function runAgentTurn(opts: {
   systemPrompt: string;
   enabledBuiltin: Set<string>;
   mcpServers: McpServer[];
+  catalog?: PiCatalog;
+  modelConfig?: PiModelConfig | null;
   signal?: AbortSignal;
   hooks: LoopHooks;
 }): Promise<ChatMessage[]> {
@@ -104,7 +118,9 @@ export async function runAgentTurn(opts: {
       provider: opts.provider,
       model: opts.model,
       effort: opts.effort,
-      messages: deriveMessages(system, history),
+      catalog: opts.catalog,
+      modelConfig: opts.modelConfig,
+      messages: deriveMessages(system, history, { vision: supportsVision(opts.modelConfig) }),
       tools,
       signal: opts.signal,
       onUpdate: opts.hooks.onAssistant,
@@ -147,6 +163,8 @@ async function streamAssistant(opts: {
   provider: Provider;
   model: string;
   effort: ThinkingEffort;
+  catalog?: PiCatalog;
+  modelConfig?: PiModelConfig | null;
   messages: unknown[];
   tools: ToolDefinition[];
   signal?: AbortSignal;
@@ -162,21 +180,28 @@ async function streamAssistant(opts: {
   };
   opts.onUpdate({ ...msg });
   const thinkStarted = Date.now();
-  const url = joinUrl(opts.provider.baseUrl, '/chat/completions');
-  const think = thinkingPayload(opts.effort);
+  const baseUrl = opts.catalog
+    ? resolveRequestBaseUrl(opts.catalog, opts.provider, opts.modelConfig)
+    : opts.modelConfig?.baseUrl || opts.provider.baseUrl;
+  const url = joinUrl(baseUrl, '/chat/completions');
+  const think = thinkingPayload(opts.effort, opts.modelConfig);
   const body: Record<string, unknown> = {
     model: opts.model,
     messages: opts.messages,
     stream: true,
     ...think,
   };
+  const maxField = opts.modelConfig?.compat?.maxTokensField;
+  if (maxField && opts.modelConfig?.maxTokens) {
+    body[maxField] = opts.modelConfig.maxTokens;
+  }
   if (opts.tools.length) body.tools = toOpenAiTools(opts.tools);
 
   let toolAcc: { id?: string; name?: string; arguments: string }[] = [];
   try {
     for await (const ev of streamChatCompletions({
       url,
-      headers: authHeaders(opts.provider),
+      headers: authHeaders(opts.provider, opts.modelConfig),
       body,
       signal: opts.signal,
       preferNative: Capacitor.isNativePlatform(),
@@ -228,8 +253,13 @@ function joinUrl(base: string, path: string): string {
   return `${base.replace(/\/+$/, '')}${path}`;
 }
 
-function authHeaders(provider: Provider): Record<string, string> {
-  const headers: Record<string, string> = {};
+function authHeaders(provider: Provider, config?: PiModelConfig | null): Record<string, string> {
+  const headers: Record<string, string> = { ...(config?.headers ?? {}) };
+  if (config?.api === 'anthropic-messages') {
+    if (provider.apiKey) headers['x-api-key'] = provider.apiKey;
+    if (!headers['anthropic-version']) headers['anthropic-version'] = '2023-06-01';
+    return headers;
+  }
   if (provider.apiKey) headers.Authorization = `Bearer ${provider.apiKey}`;
   return headers;
 }

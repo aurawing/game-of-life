@@ -10,7 +10,16 @@ import { PluginCenter } from './components/PluginCenter';
 import { McpView } from './components/McpView';
 import { IconMenu, IconPlus } from './components/Icons';
 import { useActiveSession, useAppStore } from './store';
-import { THINKING_LABELS, type ChatMessage } from './types';
+import type { ChatMessage } from './types';
+import {
+  availableThinkingLevels,
+  catalogModels,
+  formatTokenCount,
+  resolveModelConfig,
+  supportsReasoning,
+  supportsVision,
+  thinkingLabel,
+} from './lib/pi-catalog';
 
 type Overlay = 'none' | 'settings' | 'plugins' | 'mcp';
 
@@ -26,18 +35,45 @@ export default function App() {
   const model = useAppStore((s) => s.activeModel);
   const effort = useAppStore((s) => s.thinkingEffort);
   const providers = useAppStore((s) => s.providers);
+  const catalog = useAppStore((s) => s.catalog);
   const activeProviderId = useAppStore((s) => s.activeProviderId);
+  const setActiveProvider = useAppStore((s) => s.setActiveProvider);
   const setActiveModel = useAppStore((s) => s.setActiveModel);
+  const refreshCatalog = useAppStore((s) => s.refreshCatalog);
   const live = thinking ? session?.messages.find((m) => m.id === thinking.id) ?? thinking : null;
-  const models = useMemo(
-    () => providers.find((p) => p.id === activeProviderId)?.models ?? [model],
-    [providers, activeProviderId, model],
+  const activeProvider = providers.find((p) => p.id === activeProviderId);
+  const models = useMemo(() => {
+    if (activeProvider?.kind === 'custom') {
+      return (activeProvider.models ?? []).map((id) => ({ id, name: id }));
+    }
+    const fromCatalog = catalogModels(catalog, activeProviderId);
+    if (fromCatalog.length) return fromCatalog.map((m) => ({ id: m.id, name: m.name }));
+    return (activeProvider?.models ?? [model]).map((id) => ({ id, name: id }));
+  }, [activeProvider, catalog, activeProviderId, model]);
+  const modelConfig = useMemo(
+    () => resolveModelConfig(catalog, activeProvider, model),
+    [catalog, activeProvider, model],
   );
+  const vision = supportsVision(modelConfig);
+  const reasoning = supportsReasoning(modelConfig);
+  const levels = availableThinkingLevels(modelConfig);
+  const effortText = reasoning && levels.length ? thinkingLabel(effort) : '无推理';
+  const caps = [
+    reasoning ? '推理' : null,
+    vision ? '视觉' : null,
+    `上下文 ${formatTokenCount(modelConfig?.contextWindow)}`,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
+  useEffect(() => {
+    void refreshCatalog();
+  }, [refreshCatalog]);
 
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
     void StatusBar.setStyle({ style: Style.Dark });
-    void StatusBar.setBackgroundColor({ color: '#161412' });
+    void StatusBar.setBackgroundColor({ color: '#0a1220' });
     const sub = CapApp.addListener('backButton', ({ canGoBack }) => {
       if (thinking) {
         setThinking(null);
@@ -67,14 +103,34 @@ export default function App() {
           <IconMenu />
         </button>
         <div className="top-center">
-          <select className="model-select" value={model} onChange={(e) => setActiveModel(e.target.value)}>
-            {models.map((m) => (
-              <option key={m} value={m}>
-                {m}
+          <select
+            className="provider-select"
+            aria-label="提供商"
+            value={activeProviderId}
+            onChange={(e) => setActiveProvider(e.target.value)}
+          >
+            {providers.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
               </option>
             ))}
           </select>
-          <div className="muted tiny">思维 {THINKING_LABELS[effort]}</div>
+          <select
+            className="model-select"
+            aria-label="模型"
+            value={model}
+            onChange={(e) => setActiveModel(e.target.value)}
+          >
+            {models.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+              </option>
+            ))}
+          </select>
+          <div className="muted tiny top-caps">
+            思维 {effortText}
+            {caps ? ` · ${caps}` : ''}
+          </div>
         </div>
         <button className="icon-btn" onClick={create} aria-label="新对话">
           <IconPlus />
@@ -82,7 +138,7 @@ export default function App() {
       </header>
 
       <MessageList messages={session?.messages ?? []} onOpenThinking={setThinking} />
-      <Composer busy={busy} onSend={(t, a) => void send(t, a)} onStop={stop} />
+      <Composer busy={busy} vision={vision} onSend={(t, a) => void send(t, a)} onStop={stop} />
 
       <Sidebar
         open={drawer}

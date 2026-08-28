@@ -39,4 +39,20 @@ describe('deriveMessages', () => {
     expect(msgs[2]).toMatchObject({ role: 'assistant', tool_calls: [{ id: 'c1' }] });
     expect(msgs[3]).toMatchObject({ role: 'tool', tool_call_id: 'c1' });
   });
+
+  it('flattens images when the model has no vision', () => {
+    const history: ChatMessage[] = [
+      {
+        id: 'u',
+        role: 'user',
+        content: '看图',
+        createdAt: 1,
+        attachments: [{ id: 'a', kind: 'image', name: 'x.png', mime: 'image/png', size: 10, dataUrl: 'data:image/png;base64,xx' }],
+      },
+    ];
+    const withVision = deriveMessages('sys', history, { vision: true }) as Array<Record<string, unknown>>;
+    const noVision = deriveMessages('sys', history, { vision: false }) as Array<Record<string, unknown>>;
+    expect(Array.isArray(withVision[1].content)).toBe(true);
+    expect(String(noVision[1].content)).toContain('当前模型不支持视觉输入');
+  });
 });

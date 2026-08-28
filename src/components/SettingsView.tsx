@@ -1,11 +1,21 @@
-import { THINKING_LABELS, type ThinkingEffort } from '../types';
+import { THINKING_LABELS } from '../types';
 import { useActiveSession, useAppStore } from '../store';
 import { IconClose, IconPlus, IconTrash } from './Icons';
-
-const EFFORTS: ThinkingEffort[] = ['none', 'low', 'medium', 'high', 'max'];
+import {
+  availableThinkingLevels,
+  catalogModels,
+  formatTokenCount,
+  modelPageUrl,
+  resolveModelConfig,
+  supportsReasoning,
+  supportsVision,
+  thinkingLabel,
+} from '../lib/pi-catalog';
 
 export function SettingsView({ onClose }: { onClose: () => void }) {
   const providers = useAppStore((s) => s.providers);
+  const catalog = useAppStore((s) => s.catalog);
+  const catalogSource = useAppStore((s) => s.catalogSource);
   const activeProviderId = useAppStore((s) => s.activeProviderId);
   const activeModel = useAppStore((s) => s.activeModel);
   const effort = useAppStore((s) => s.thinkingEffort);
@@ -19,7 +29,14 @@ export function SettingsView({ onClose }: { onClose: () => void }) {
   const setThinkingEffort = useAppStore((s) => s.setThinkingEffort);
   const setSystemPrompt = useAppStore((s) => s.setSystemPrompt);
   const setSessionSystemPrompt = useAppStore((s) => s.setSessionSystemPrompt);
+  const refreshCatalog = useAppStore((s) => s.refreshCatalog);
   const active = providers.find((p) => p.id === activeProviderId);
+  const custom = active?.kind === 'custom';
+  const catalogList = custom ? [] : catalogModels(catalog, activeProviderId);
+  const modelConfig = resolveModelConfig(catalog, active, activeModel);
+  const levels = availableThinkingLevels(modelConfig);
+  const reasoning = supportsReasoning(modelConfig);
+  const vision = supportsVision(modelConfig);
 
   return (
     <div className="page">
@@ -32,26 +49,51 @@ export function SettingsView({ onClose }: { onClose: () => void }) {
       <div className="page-body">
         <section className="card">
           <div className="card-title">模型提供商</div>
-          <p className="muted tiny">OpenAI 兼容接口。DeepSeek V4 使用 reasoning_effort + thinking。</p>
-          <div className="chips">
-            {providers.map((p) => (
-              <button key={p.id} className={`chip btn ${p.id === activeProviderId ? 'on' : ''}`} onClick={() => setActiveProvider(p.id)}>
-                {p.name}
-              </button>
-            ))}
+          <p className="muted tiny">
+            预置列表来自 pi.dev/models（{catalogSource === 'live' ? '已同步在线目录' : '使用内置目录'}
+            ）。先选 Provider，再选模型；必要参数取自 SHOW CONFIGURATION。自定义 Provider 会单独保留。
+          </p>
+          <div className="form">
+            <label>
+              提供商
+              <select
+                aria-label="设置提供商"
+                value={activeProviderId}
+                onChange={(e) => setActiveProvider(e.target.value)}
+              >
+                {providers.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                    {p.kind === 'custom' ? '（自定义）' : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="chips" style={{ marginTop: 10 }}>
             <button className="chip btn" onClick={addProvider}>
               <IconPlus size={14} /> 新增
+            </button>
+            <button className="chip btn" onClick={() => void refreshCatalog()}>
+              刷新目录
             </button>
           </div>
           {active && (
             <div className="form">
               <label>
                 名称
-                <input value={active.name} onChange={(e) => setProviderField(active.id, { name: e.target.value })} />
+                <input
+                  value={active.name}
+                  onChange={(e) => setProviderField(active.id, { name: e.target.value })}
+                  disabled={!custom}
+                />
               </label>
               <label>
                 Base URL
-                <input value={active.baseUrl} onChange={(e) => setProviderField(active.id, { baseUrl: e.target.value })} />
+                <input
+                  value={active.baseUrl}
+                  onChange={(e) => setProviderField(active.id, { baseUrl: e.target.value })}
+                />
               </label>
               <label>
                 API Key
@@ -62,28 +104,78 @@ export function SettingsView({ onClose }: { onClose: () => void }) {
                   onChange={(e) => setProviderField(active.id, { apiKey: e.target.value })}
                 />
               </label>
-              <label>
-                模型列表（逗号分隔）
-                <input
-                  value={active.models.join(', ')}
-                  onChange={(e) =>
-                    setProviderField(active.id, {
-                      models: e.target.value.split(',').map((x) => x.trim()).filter(Boolean),
-                    })
-                  }
-                />
-              </label>
+              {custom ? (
+                <>
+                  <label>
+                    模型列表（逗号分隔）
+                    <input
+                      value={active.models.join(', ')}
+                      onChange={(e) =>
+                        setProviderField(active.id, {
+                          models: e.target.value
+                            .split(',')
+                            .map((x) => x.trim())
+                            .filter(Boolean),
+                        })
+                      }
+                    />
+                  </label>
+                  <div className="toggle-row">
+                    <label className="toggle">
+                      <input
+                        type="checkbox"
+                        checked={active.reasoning !== false}
+                        onChange={(e) => setProviderField(active.id, { reasoning: e.target.checked })}
+                      />
+                      支持推理
+                    </label>
+                    <label className="toggle">
+                      <input
+                        type="checkbox"
+                        checked={active.vision !== false}
+                        onChange={(e) => setProviderField(active.id, { vision: e.target.checked })}
+                      />
+                      支持视觉
+                    </label>
+                  </div>
+                  <label>
+                    上下文上限
+                    <input
+                      type="number"
+                      value={active.contextWindow ?? 128000}
+                      onChange={(e) =>
+                        setProviderField(active.id, { contextWindow: Number(e.target.value) || 0 })
+                      }
+                    />
+                  </label>
+                </>
+              ) : (
+                <p className="muted tiny">
+                  预置模型参数来自{' '}
+                  <a href={modelPageUrl(active.id, activeModel)} target="_blank" rel="noreferrer">
+                    pi.dev/models/{active.id}/{activeModel}
+                  </a>{' '}
+                  的 SHOW CONFIGURATION，不可手改模型清单。
+                </p>
+              )}
               <label>
                 当前模型
-                <select value={activeModel} onChange={(e) => setActiveModel(e.target.value)}>
-                  {active.models.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
+                <select aria-label="当前模型" value={activeModel} onChange={(e) => setActiveModel(e.target.value)}>
+                  {(custom ? active.models.map((id) => ({ id, name: id })) : catalogList).map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
                     </option>
                   ))}
                 </select>
               </label>
-              {providers.length > 1 && (
+              <div className="cap-grid">
+                <div className={`cap ${reasoning ? 'on' : ''}`}>推理 {reasoning ? '支持' : '不支持'}</div>
+                <div className={`cap ${vision ? 'on' : ''}`}>视觉 {vision ? '支持' : '不支持'}</div>
+                <div className="cap">上下文 {formatTokenCount(modelConfig?.contextWindow)}</div>
+                <div className="cap">输出 {formatTokenCount(modelConfig?.maxTokens)}</div>
+              </div>
+              {modelConfig?.api ? <p className="muted tiny">接口：{modelConfig.api}</p> : null}
+              {custom && (
                 <button className="ghost-btn danger" onClick={() => removeProvider(active.id)}>
                   <IconTrash size={16} /> 删除此提供商
                 </button>
@@ -94,14 +186,25 @@ export function SettingsView({ onClose }: { onClose: () => void }) {
 
         <section className="card">
           <div className="card-title">思维强度</div>
-          <div className="effort">
-            {EFFORTS.map((e) => (
-              <button key={e} className={e === effort ? 'on' : ''} onClick={() => setThinkingEffort(e)}>
-                {THINKING_LABELS[e]}
-              </button>
-            ))}
-          </div>
-          <p className="muted tiny">对应 DeepSeek V4 的 reasoning_effort：none / low / high / max（medium 映射为 high）。</p>
+          {levels.length ? (
+            <>
+              <div className="effort">
+                {levels.map((e) => (
+                  <button key={e} className={e === effort ? 'on' : ''} onClick={() => setThinkingEffort(e)}>
+                    {THINKING_LABELS[e] ?? thinkingLabel(e)}
+                  </button>
+                ))}
+              </div>
+              <p className="muted tiny">
+                档位来自当前模型的 thinkingLevelMap：{levels.map((l) => thinkingLabel(l)).join(' / ')}
+                {modelConfig?.compat?.thinkingFormat
+                  ? ` · 格式 ${modelConfig.compat.thinkingFormat}`
+                  : ''}
+              </p>
+            </>
+          ) : (
+            <p className="muted tiny">当前模型不支持推理，已隐藏思维强度。</p>
+          )}
         </section>
 
         <section className="card">

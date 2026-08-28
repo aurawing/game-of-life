@@ -6,6 +6,7 @@ import { IconCamera, IconClose, IconFile, IconImage, IconMic, IconPaperclip, Ico
 
 export function Composer(props: {
   busy: boolean;
+  vision?: boolean;
   onSend: (text: string, attachments: Attachment[]) => void;
   onStop: () => void;
 }) {
@@ -91,23 +92,29 @@ export function Composer(props: {
       )}
       {menu && (
         <div className="attach-menu">
-          <button
-            onClick={async () => {
-              setMenu(false);
-              const photo = await takePhoto().catch(() => null);
-              if (photo) add([photo]);
-            }}
-          >
-            <IconCamera size={18} /> 拍照
-          </button>
-          <button
-            onClick={async () => {
-              setMenu(false);
-              add(await pickImages().catch(() => []));
-            }}
-          >
-            <IconImage size={18} /> 图片
-          </button>
+          {props.vision !== false ? (
+            <>
+              <button
+                onClick={async () => {
+                  setMenu(false);
+                  const photo = await takePhoto().catch(() => null);
+                  if (photo) add([photo]);
+                }}
+              >
+                <IconCamera size={18} /> 拍照
+              </button>
+              <button
+                onClick={async () => {
+                  setMenu(false);
+                  add(await pickImages().catch(() => []));
+                }}
+              >
+                <IconImage size={18} /> 图片
+              </button>
+            </>
+          ) : (
+            <span className="muted tiny">当前模型不支持视觉输入</span>
+          )}
           <button
             onClick={async () => {
               setMenu(false);

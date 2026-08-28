@@ -1,5 +1,10 @@
 /// <reference types="vite/client" />
 
+declare module '*.json' {
+  const value: unknown;
+  export default value;
+}
+
 interface SpeechRecognition extends EventTarget {
   lang: string;
   continuous: boolean;

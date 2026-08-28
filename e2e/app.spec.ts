@@ -17,13 +17,18 @@ test.describe('DSH Agent Android UI', () => {
   test('home, composer, voice and attach menu', async ({ page }) => {
     await reset(page);
     await expect(page.getByRole('heading', { name: '有什么可以帮忙的？' })).toBeVisible();
-    await expect(page.getByText('思维 高')).toBeVisible();
+    await expect(page.getByLabel('提供商')).toHaveValue('deepseek');
+    await expect(page.getByLabel('模型')).toHaveValue('deepseek-v4-flash');
+    await expect(page.getByText(/思维 高/)).toBeVisible();
     await expect(page.getByRole('button', { name: '语音输入' })).toBeVisible();
+    await page.getByRole('button', { name: '附件' }).click();
+    await expect(page.getByText('当前模型不支持视觉输入')).toBeVisible();
+    await expect(page.getByRole('button', { name: /文件/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /文本片段/ })).toBeVisible();
+    await page.getByLabel('模型').selectOption('deepseek-v4-flash-vision-exp');
     await page.getByRole('button', { name: '附件' }).click();
     await expect(page.getByRole('button', { name: /拍照/ })).toBeVisible();
     await expect(page.getByRole('button', { name: /图片/ })).toBeVisible();
-    await expect(page.getByRole('button', { name: /文件/ })).toBeVisible();
-    await expect(page.getByRole('button', { name: /文本片段/ })).toBeVisible();
   });
 
   test('send without api key shows setup hint', async ({ page }) => {
@@ -58,19 +63,36 @@ test.describe('DSH Agent Android UI', () => {
     await page.getByRole('button', { name: '设置' }).click();
     await expect(page.getByText('模型提供商')).toBeVisible();
     await expect(page.getByText('思维强度', { exact: true })).toBeVisible();
+    await expect(page.getByLabel('设置提供商')).toContainText('DeepSeek');
+    await expect(page.getByText('推理 支持')).toBeVisible();
+    await expect(page.getByText('视觉 不支持')).toBeVisible();
+    await expect(page.getByText(/上下文 1M/)).toBeVisible();
     await page.getByRole('button', { name: '新增' }).click();
-    await page.getByRole('button', { name: '自定义提供商' }).click();
-    await expect(page.getByRole('button', { name: '自定义提供商' })).toBeVisible();
+    await expect(page.getByLabel('设置提供商')).toContainText('自定义提供商');
     await page.getByLabel('名称').fill('本地 Ollama');
     await page.getByLabel('Base URL').fill('http://127.0.0.1:11434/v1');
     await page.getByLabel('API Key').fill('ollama');
     await page.getByLabel('模型列表（逗号分隔）').fill('llama3, qwen2.5');
-    await expect(page.locator('.model-select, select').last()).toContainText('llama3');
+    await expect(page.getByLabel('当前模型')).toContainText('llama3');
     await page.getByRole('button', { name: '低' }).click();
     await page.locator('textarea.prompt').first().fill('你是测试助手。');
     await closeOverlay(page);
-    await expect(page.getByText('思维 低')).toBeVisible();
-    await expect(page.locator('.model-select')).toContainText('llama3');
+    await expect(page.getByText(/思维 低/)).toBeVisible();
+    await expect(page.getByLabel('提供商')).toContainText('本地 Ollama');
+    await expect(page.getByLabel('模型')).toContainText('llama3');
+  });
+
+  test('catalog provider switch loads SHOW CONFIGURATION caps', async ({ page }) => {
+    await reset(page);
+    await page.getByLabel('提供商').selectOption('openai');
+    await page.getByLabel('模型').selectOption('gpt-4o');
+    await expect(page.getByText(/无推理/)).toBeVisible();
+    await expect(page.getByText(/视觉/)).toBeVisible();
+    await openMenu(page);
+    await page.getByRole('button', { name: '设置' }).click();
+    await expect(page.getByText('推理 不支持')).toBeVisible();
+    await expect(page.getByText('视觉 支持')).toBeVisible();
+    await expect(page.getByText('当前模型不支持推理，已隐藏思维强度。')).toBeVisible();
   });
 
   test('plugin center lists builtins and marketplace', async ({ page }) => {
@@ -112,6 +134,7 @@ test.describe('DSH Agent Android UI', () => {
               baseUrl: 'https://api.deepseek.com/v1',
               apiKey: '',
               models: ['deepseek-v4-flash'],
+              kind: 'catalog',
             },
           ],
           activeProviderId: 'deepseek',

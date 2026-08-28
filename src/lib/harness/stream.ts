@@ -121,13 +121,36 @@ export async function* iterateSse(
   }
 }
 
-export function thinkingPayload(effort: 'none' | 'low' | 'medium' | 'high' | 'max'): {
-  thinking?: { type: 'enabled' | 'disabled' };
-  reasoning_effort?: string;
-} {
-  if (effort === 'none') {
-    return { thinking: { type: 'disabled' } };
+export function thinkingPayload(
+  effort: string,
+  config?: {
+    reasoning?: boolean;
+    compat?: { thinkingFormat?: string };
+    thinkingLevelMap?: Record<string, string | null>;
+  } | null,
+): Record<string, unknown> {
+  if (!config) {
+    if (effort === 'none' || effort === 'off') {
+      return { thinking: { type: 'disabled' } };
+    }
+    const mapped = effort === 'medium' ? 'high' : effort;
+    return { thinking: { type: 'enabled' }, reasoning_effort: mapped };
   }
-  const mapped = effort === 'medium' ? 'high' : effort;
-  return { thinking: { type: 'enabled' }, reasoning_effort: mapped };
+  if (config.reasoning === false) return {};
+  const format = config.compat?.thinkingFormat ?? 'openai';
+  const map = config.thinkingLevelMap;
+  const off = effort === 'none' || effort === 'off';
+  if (off) {
+    if (format === 'deepseek' || format === 'zai') return { thinking: { type: 'disabled' } };
+    const mappedOff = map?.off ?? map?.none;
+    return mappedOff ? { reasoning_effort: mappedOff } : {};
+  }
+  const mapped = map?.[effort] ?? (effort === 'medium' ? map?.high : undefined) ?? effort;
+  if (mapped == null) {
+    return format === 'deepseek' || format === 'zai' ? { thinking: { type: 'disabled' } } : {};
+  }
+  if (format === 'deepseek' || format === 'zai') {
+    return { thinking: { type: 'enabled' }, reasoning_effort: String(mapped) };
+  }
+  return { reasoning_effort: String(mapped) };
 }

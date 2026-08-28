@@ -14,7 +14,7 @@ const config: CapacitorConfig = {
     },
     StatusBar: {
       style: 'DARK',
-      backgroundColor: '#161412',
+      backgroundColor: '#0a1220',
     },
     Camera: {
       presentationStyle: 'fullscreen',

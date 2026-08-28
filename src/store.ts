@@ -10,10 +10,18 @@ import type {
   Session,
   ThinkingEffort,
 } from './types';
-import { DEFAULT_PROVIDERS, DEFAULT_SYSTEM_PROMPT } from './types';
+import { DEFAULT_SYSTEM_PROMPT } from './types';
 import { guessTitle, now, uid } from './lib/id';
 import { runAgentTurn } from './lib/harness/loop';
 import { initializeMcp } from './lib/harness/mcp';
+import {
+  bundledCatalog,
+  clampEffort,
+  loadPiCatalog,
+  mergeSavedProviders,
+  resolveModelConfig,
+  type PiCatalog,
+} from './lib/pi-catalog';
 
 export const BUILTIN_PLUGINS: InstalledPlugin[] = [
   {
@@ -79,6 +87,9 @@ interface AppState extends AppSettings {
   busy: boolean;
   abort?: AbortController;
   hydrateDone: boolean;
+  catalog: PiCatalog;
+  catalogSource: 'bundled' | 'live';
+  refreshCatalog: () => Promise<void>;
   setProviderField: (id: string, patch: Partial<Provider>) => void;
   addProvider: () => void;
   removeProvider: (id: string) => void;
@@ -110,7 +121,7 @@ export const useAppStore = create<AppState>()(
     (set, get) => {
       const first = emptySession();
       return {
-        providers: DEFAULT_PROVIDERS,
+        providers: mergeSavedProviders(undefined, bundledCatalog),
         activeProviderId: 'deepseek',
         activeModel: 'deepseek-v4-flash',
         thinkingEffort: 'high',
@@ -121,32 +132,79 @@ export const useAppStore = create<AppState>()(
         activeSessionId: first.id,
         busy: false,
         hydrateDone: false,
+        catalog: bundledCatalog,
+        catalogSource: 'bundled',
 
+        refreshCatalog: async () => {
+          const { catalog, source } = await loadPiCatalog();
+          const state = get();
+          const providers = mergeSavedProviders(state.providers, catalog);
+          const active = providers.find((p) => p.id === state.activeProviderId) ?? providers[0];
+          const config = resolveModelConfig(catalog, active, state.activeModel);
+          const model =
+            config?.id && catalog[active?.id ?? '']?.[state.activeModel]
+              ? state.activeModel
+              : (active?.models[0] ?? state.activeModel);
+          const nextConfig = resolveModelConfig(catalog, active, model);
+          set({
+            catalog,
+            catalogSource: source,
+            providers,
+            activeProviderId: active?.id ?? state.activeProviderId,
+            activeModel: model,
+            thinkingEffort: clampEffort(state.thinkingEffort, nextConfig),
+          });
+        },
         setProviderField: (id, patch) =>
           set({ providers: get().providers.map((p) => (p.id === id ? { ...p, ...patch } : p)) }),
-        addProvider: () =>
+        addProvider: () => {
+          const created = {
+            id: uid('prov'),
+            name: '自定义提供商',
+            baseUrl: 'https://api.example.com/v1',
+            apiKey: '',
+            models: ['custom-model'],
+            kind: 'custom' as const,
+            reasoning: true,
+            vision: true,
+            contextWindow: 128000,
+            maxTokens: 8192,
+          };
           set({
-            providers: [
-              ...get().providers,
-              {
-                id: uid('prov'),
-                name: '自定义提供商',
-                baseUrl: 'https://api.example.com/v1',
-                apiKey: '',
-                models: ['custom-model'],
-              },
-            ],
-          }),
+            providers: [...get().providers, created],
+            activeProviderId: created.id,
+            activeModel: created.models[0],
+            thinkingEffort: clampEffort(get().thinkingEffort, resolveModelConfig(get().catalog, created, created.models[0])),
+          });
+        },
         removeProvider: (id) => {
+          const target = get().providers.find((p) => p.id === id);
+          if (target?.kind !== 'custom') return;
           const providers = get().providers.filter((p) => p.id !== id);
           const activeProviderId = get().activeProviderId === id ? providers[0]?.id ?? '' : get().activeProviderId;
-          set({ providers, activeProviderId });
+          const next = providers.find((p) => p.id === activeProviderId);
+          const model = next?.models[0] ?? get().activeModel;
+          set({
+            providers,
+            activeProviderId,
+            activeModel: get().activeProviderId === id ? model : get().activeModel,
+          });
         },
         setActiveProvider: (id) => {
           const p = get().providers.find((x) => x.id === id);
-          set({ activeProviderId: id, activeModel: p?.models[0] ?? get().activeModel });
+          const model = p?.models[0] ?? get().activeModel;
+          const config = resolveModelConfig(get().catalog, p, model);
+          set({
+            activeProviderId: id,
+            activeModel: model,
+            thinkingEffort: clampEffort(get().thinkingEffort, config),
+          });
         },
-        setActiveModel: (model) => set({ activeModel: model }),
+        setActiveModel: (model) => {
+          const p = get().providers.find((x) => x.id === get().activeProviderId);
+          const config = resolveModelConfig(get().catalog, p, model);
+          set({ activeModel: model, thinkingEffort: clampEffort(get().thinkingEffort, config) });
+        },
         setThinkingEffort: (effort) => set({ thinkingEffort: effort }),
         setSystemPrompt: (prompt) => set({ systemPrompt: prompt }),
         setSessionSystemPrompt: (prompt) =>
@@ -196,6 +254,7 @@ export const useAppStore = create<AppState>()(
             });
             return;
           }
+          const modelConfig = resolveModelConfig(state.catalog, provider, state.activeModel);
           const abort = new AbortController();
           set({ busy: true, abort });
           const enabledBuiltin = new Set(state.installedPlugins.filter((p) => p.source === 'builtin' && p.enabled).map((p) => p.id));
@@ -206,10 +265,12 @@ export const useAppStore = create<AppState>()(
               attachments,
               provider,
               model: state.activeModel,
-              effort: state.thinkingEffort,
+              effort: clampEffort(state.thinkingEffort, modelConfig),
               systemPrompt: session.systemPrompt?.trim() || state.systemPrompt,
               enabledBuiltin,
               mcpServers: state.mcpServers,
+              catalog: state.catalog,
+              modelConfig,
               signal: abort.signal,
               hooks: {
                 onAssistant: (msg) => get().upsertMessage(session.id, msg),
@@ -306,7 +367,7 @@ export const useAppStore = create<AppState>()(
           ...current,
           ...p,
           installedPlugins: mergePlugins(p.installedPlugins),
-          providers: p.providers?.length ? p.providers : current.providers,
+          providers: mergeSavedProviders(p.providers, current.catalog ?? bundledCatalog),
           sessions: p.sessions?.length ? p.sessions : current.sessions,
         };
       },

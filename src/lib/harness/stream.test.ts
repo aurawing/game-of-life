@@ -37,4 +37,18 @@ describe('thinking payload', () => {
   it('maps medium to high effort', () => {
     expect(thinkingPayload('medium')).toEqual({ thinking: { type: 'enabled' }, reasoning_effort: 'high' });
   });
+
+  it('uses SHOW CONFIGURATION thinkingLevelMap and format', () => {
+    const flash = {
+      reasoning: true,
+      compat: { thinkingFormat: 'deepseek' as const },
+      thinkingLevelMap: { minimal: null, low: 'low', medium: null, high: 'high', max: 'max' },
+    };
+    expect(thinkingPayload('high', flash)).toEqual({ thinking: { type: 'enabled' }, reasoning_effort: 'high' });
+    expect(thinkingPayload('none', flash)).toEqual({ thinking: { type: 'disabled' } });
+    expect(thinkingPayload('high', { reasoning: false })).toEqual({});
+    expect(thinkingPayload('low', { reasoning: true, compat: { thinkingFormat: 'openai' }, thinkingLevelMap: { low: 'low' } })).toEqual({
+      reasoning_effort: 'low',
+    });
+  });
 });
