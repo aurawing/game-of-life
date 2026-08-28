@@ -49,7 +49,7 @@ npm run android:apk
 产物：
 
 - `android/app/build/outputs/apk/debug/app-debug.apk`
-- 仓库内副本 `artifacts/dsh-agent-debug.apk`（包名 `ai.dsh.agent`，minSdk 24）
+- 仓库内副本 `artifacts/aurai-debug.apk`（包名 `ai.dsh.agent`，minSdk 24）
 
 ## 功能测试
 
