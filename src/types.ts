@@ -102,12 +102,15 @@ export interface Session {
   messages: ChatMessage[];
 }
 
+export type ThemeMode = 'dark' | 'light' | 'system';
+
 export interface AppSettings {
   providers: Provider[];
   activeProviderId: string;
   activeModel: string;
   thinkingEffort: ThinkingEffort;
   systemPrompt: string;
+  themeMode: ThemeMode;
   mcpServers: McpServer[];
   installedPlugins: InstalledPlugin[];
 }

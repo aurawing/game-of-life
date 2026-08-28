@@ -13,13 +13,13 @@ import { useActiveSession, useAppStore } from './store';
 import type { ChatMessage } from './types';
 import {
   availableThinkingLevels,
-  catalogModels,
   formatTokenCount,
   resolveModelConfig,
   supportsReasoning,
   supportsVision,
   thinkingLabel,
 } from './lib/pi-catalog';
+import { applyTheme } from './lib/theme';
 
 type Overlay = 'none' | 'settings' | 'plugins' | 'mcp';
 
@@ -37,19 +37,10 @@ export default function App() {
   const providers = useAppStore((s) => s.providers);
   const catalog = useAppStore((s) => s.catalog);
   const activeProviderId = useAppStore((s) => s.activeProviderId);
-  const setActiveProvider = useAppStore((s) => s.setActiveProvider);
-  const setActiveModel = useAppStore((s) => s.setActiveModel);
+  const themeMode = useAppStore((s) => s.themeMode);
   const refreshCatalog = useAppStore((s) => s.refreshCatalog);
   const live = thinking ? session?.messages.find((m) => m.id === thinking.id) ?? thinking : null;
   const activeProvider = providers.find((p) => p.id === activeProviderId);
-  const models = useMemo(() => {
-    if (activeProvider?.kind === 'custom') {
-      return (activeProvider.models ?? []).map((id) => ({ id, name: id }));
-    }
-    const fromCatalog = catalogModels(catalog, activeProviderId);
-    if (fromCatalog.length) return fromCatalog.map((m) => ({ id: m.id, name: m.name }));
-    return (activeProvider?.models ?? [model]).map((id) => ({ id, name: id }));
-  }, [activeProvider, catalog, activeProviderId, model]);
   const modelConfig = useMemo(
     () => resolveModelConfig(catalog, activeProvider, model),
     [catalog, activeProvider, model],
@@ -58,7 +49,9 @@ export default function App() {
   const reasoning = supportsReasoning(modelConfig);
   const levels = availableThinkingLevels(modelConfig);
   const effortText = reasoning && levels.length ? thinkingLabel(effort) : '无推理';
+  const modelTitle = modelConfig?.name || model;
   const caps = [
+    activeProvider?.name,
     reasoning ? '推理' : null,
     vision ? '视觉' : null,
     `上下文 ${formatTokenCount(modelConfig?.contextWindow)}`,
@@ -71,9 +64,22 @@ export default function App() {
   }, [refreshCatalog]);
 
   useEffect(() => {
+    const resolved = applyTheme(themeMode);
     if (!Capacitor.isNativePlatform()) return;
-    void StatusBar.setStyle({ style: Style.Dark });
-    void StatusBar.setBackgroundColor({ color: '#0a1220' });
+    void StatusBar.setStyle({ style: resolved === 'dark' ? Style.Dark : Style.Light });
+    void StatusBar.setBackgroundColor({ color: resolved === 'dark' ? '#0a1220' : '#f3f6fb' });
+  }, [themeMode]);
+
+  useEffect(() => {
+    if (themeMode !== 'system') return;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = () => applyTheme('system');
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, [themeMode]);
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
     const sub = CapApp.addListener('backButton', ({ canGoBack }) => {
       if (thinking) {
         setThinking(null);
@@ -103,30 +109,7 @@ export default function App() {
           <IconMenu />
         </button>
         <div className="top-center">
-          <select
-            className="provider-select"
-            aria-label="提供商"
-            value={activeProviderId}
-            onChange={(e) => setActiveProvider(e.target.value)}
-          >
-            {providers.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-          <select
-            className="model-select"
-            aria-label="模型"
-            value={model}
-            onChange={(e) => setActiveModel(e.target.value)}
-          >
-            {models.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name}
-              </option>
-            ))}
-          </select>
+          <div className="model-title">{modelTitle}</div>
           <div className="muted tiny top-caps">
             思维 {effortText}
             {caps ? ` · ${caps}` : ''}

@@ -1,26 +1,27 @@
-import { THINKING_LABELS } from '../types';
-import { useActiveSession, useAppStore } from '../store';
+import { THINKING_LABELS, type ThemeMode } from '../types';
+import { useAppStore } from '../store';
 import { IconClose, IconPlus, IconTrash } from './Icons';
 import {
   availableThinkingLevels,
   catalogModels,
   formatTokenCount,
-  modelPageUrl,
   resolveModelConfig,
   supportsReasoning,
   supportsVision,
   thinkingLabel,
 } from '../lib/pi-catalog';
+import { THEME_LABELS } from '../lib/theme';
+
+const THEMES: ThemeMode[] = ['dark', 'light', 'system'];
 
 export function SettingsView({ onClose }: { onClose: () => void }) {
   const providers = useAppStore((s) => s.providers);
   const catalog = useAppStore((s) => s.catalog);
-  const catalogSource = useAppStore((s) => s.catalogSource);
   const activeProviderId = useAppStore((s) => s.activeProviderId);
   const activeModel = useAppStore((s) => s.activeModel);
   const effort = useAppStore((s) => s.thinkingEffort);
   const prompt = useAppStore((s) => s.systemPrompt);
-  const session = useActiveSession();
+  const themeMode = useAppStore((s) => s.themeMode);
   const setProviderField = useAppStore((s) => s.setProviderField);
   const addProvider = useAppStore((s) => s.addProvider);
   const removeProvider = useAppStore((s) => s.removeProvider);
@@ -28,7 +29,7 @@ export function SettingsView({ onClose }: { onClose: () => void }) {
   const setActiveModel = useAppStore((s) => s.setActiveModel);
   const setThinkingEffort = useAppStore((s) => s.setThinkingEffort);
   const setSystemPrompt = useAppStore((s) => s.setSystemPrompt);
-  const setSessionSystemPrompt = useAppStore((s) => s.setSessionSystemPrompt);
+  const setThemeMode = useAppStore((s) => s.setThemeMode);
   const refreshCatalog = useAppStore((s) => s.refreshCatalog);
   const active = providers.find((p) => p.id === activeProviderId);
   const custom = active?.kind === 'custom';
@@ -48,11 +49,18 @@ export function SettingsView({ onClose }: { onClose: () => void }) {
       </header>
       <div className="page-body">
         <section className="card">
+          <div className="card-title">外观</div>
+          <div className="effort" role="group" aria-label="主题">
+            {THEMES.map((mode) => (
+              <button key={mode} className={mode === themeMode ? 'on' : ''} onClick={() => setThemeMode(mode)}>
+                {THEME_LABELS[mode]}
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section className="card">
           <div className="card-title">模型提供商</div>
-          <p className="muted tiny">
-            预置列表来自 pi.dev/models（{catalogSource === 'live' ? '已同步在线目录' : '使用内置目录'}
-            ）。先选 Provider，再选模型；必要参数取自 SHOW CONFIGURATION。自定义 Provider 会单独保留。
-          </p>
           <div className="form">
             <label>
               提供商
@@ -149,15 +157,7 @@ export function SettingsView({ onClose }: { onClose: () => void }) {
                     />
                   </label>
                 </>
-              ) : (
-                <p className="muted tiny">
-                  预置模型参数来自{' '}
-                  <a href={modelPageUrl(active.id, activeModel)} target="_blank" rel="noreferrer">
-                    pi.dev/models/{active.id}/{activeModel}
-                  </a>{' '}
-                  的 SHOW CONFIGURATION，不可手改模型清单。
-                </p>
-              )}
+              ) : null}
               <label>
                 当前模型
                 <select aria-label="当前模型" value={activeModel} onChange={(e) => setActiveModel(e.target.value)}>
@@ -174,7 +174,6 @@ export function SettingsView({ onClose }: { onClose: () => void }) {
                 <div className="cap">上下文 {formatTokenCount(modelConfig?.contextWindow)}</div>
                 <div className="cap">输出 {formatTokenCount(modelConfig?.maxTokens)}</div>
               </div>
-              {modelConfig?.api ? <p className="muted tiny">接口：{modelConfig.api}</p> : null}
               {custom && (
                 <button className="ghost-btn danger" onClick={() => removeProvider(active.id)}>
                   <IconTrash size={16} /> 删除此提供商
@@ -187,39 +186,21 @@ export function SettingsView({ onClose }: { onClose: () => void }) {
         <section className="card">
           <div className="card-title">思维强度</div>
           {levels.length ? (
-            <>
-              <div className="effort">
-                {levels.map((e) => (
-                  <button key={e} className={e === effort ? 'on' : ''} onClick={() => setThinkingEffort(e)}>
-                    {THINKING_LABELS[e] ?? thinkingLabel(e)}
-                  </button>
-                ))}
-              </div>
-              <p className="muted tiny">
-                档位来自当前模型的 thinkingLevelMap：{levels.map((l) => thinkingLabel(l)).join(' / ')}
-                {modelConfig?.compat?.thinkingFormat
-                  ? ` · 格式 ${modelConfig.compat.thinkingFormat}`
-                  : ''}
-              </p>
-            </>
+            <div className="effort">
+              {levels.map((e) => (
+                <button key={e} className={e === effort ? 'on' : ''} onClick={() => setThinkingEffort(e)}>
+                  {THINKING_LABELS[e] ?? thinkingLabel(e)}
+                </button>
+              ))}
+            </div>
           ) : (
             <p className="muted tiny">当前模型不支持推理，已隐藏思维强度。</p>
           )}
         </section>
 
         <section className="card">
-          <div className="card-title">系统提示词</div>
+          <div className="card-title">全局系统提示词</div>
           <textarea className="prompt" rows={7} value={prompt} onChange={(e) => setSystemPrompt(e.target.value)} />
-          <div className="card-title" style={{ marginTop: 12 }}>
-            本会话覆盖（可选）
-          </div>
-          <textarea
-            className="prompt"
-            rows={4}
-            placeholder="留空则使用全局系统提示词"
-            value={session?.systemPrompt ?? ''}
-            onChange={(e) => setSessionSystemPrompt(e.target.value)}
-          />
         </section>
       </div>
     </div>

@@ -8,6 +8,7 @@ import type {
   McpServer,
   Provider,
   Session,
+  ThemeMode,
   ThinkingEffort,
 } from './types';
 import { DEFAULT_SYSTEM_PROMPT } from './types';
@@ -97,7 +98,8 @@ interface AppState extends AppSettings {
   setActiveModel: (model: string) => void;
   setThinkingEffort: (effort: ThinkingEffort) => void;
   setSystemPrompt: (prompt: string) => void;
-  setSessionSystemPrompt: (prompt: string) => void;
+  setSessionSystemPrompt: (sessionId: string, prompt: string) => void;
+  setThemeMode: (mode: ThemeMode) => void;
   newSession: () => void;
   selectSession: (id: string) => void;
   archiveSession: (id: string) => void;
@@ -126,6 +128,7 @@ export const useAppStore = create<AppState>()(
         activeModel: 'deepseek-v4-flash',
         thinkingEffort: 'high',
         systemPrompt: DEFAULT_SYSTEM_PROMPT,
+        themeMode: 'dark',
         mcpServers: [],
         installedPlugins: BUILTIN_PLUGINS,
         sessions: [first],
@@ -207,10 +210,11 @@ export const useAppStore = create<AppState>()(
         },
         setThinkingEffort: (effort) => set({ thinkingEffort: effort }),
         setSystemPrompt: (prompt) => set({ systemPrompt: prompt }),
-        setSessionSystemPrompt: (prompt) =>
+        setSessionSystemPrompt: (sessionId, prompt) =>
           set({
-            sessions: get().sessions.map((s) => (s.id === get().activeSessionId ? { ...s, systemPrompt: prompt } : s)),
+            sessions: get().sessions.map((s) => (s.id === sessionId ? { ...s, systemPrompt: prompt } : s)),
           }),
+        setThemeMode: (mode) => set({ themeMode: mode }),
         newSession: () => {
           const session = emptySession();
           set({ sessions: [session, ...get().sessions], activeSessionId: session.id });
@@ -356,6 +360,7 @@ export const useAppStore = create<AppState>()(
         activeModel: s.activeModel,
         thinkingEffort: s.thinkingEffort,
         systemPrompt: s.systemPrompt,
+        themeMode: s.themeMode,
         mcpServers: s.mcpServers.map((server) => ({ ...server, tools: undefined, status: 'idle' })),
         installedPlugins: s.installedPlugins,
         sessions: s.sessions,
@@ -369,6 +374,7 @@ export const useAppStore = create<AppState>()(
           installedPlugins: mergePlugins(p.installedPlugins),
           providers: mergeSavedProviders(p.providers, current.catalog ?? bundledCatalog),
           sessions: p.sessions?.length ? p.sessions : current.sessions,
+          themeMode: p.themeMode ?? current.themeMode,
         };
       },
     },

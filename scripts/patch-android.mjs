@@ -9,12 +9,12 @@ if (!existsSync(android)) {
   process.exit(0);
 }
 
-const pluginSrc = join(root, 'scripts/SsePlugin.java');
-const pluginDest = join(android, 'app/src/main/java/ai/dsh/agent/SsePlugin.java');
-mkdirSync(dirname(pluginDest), { recursive: true });
-copyFileSync(pluginSrc, pluginDest);
+const javaDir = join(android, 'app/src/main/java/ai/dsh/agent');
+mkdirSync(javaDir, { recursive: true });
+copyFileSync(join(root, 'scripts/SsePlugin.java'), join(javaDir, 'SsePlugin.java'));
+copyFileSync(join(root, 'scripts/VoicePlugin.java'), join(javaDir, 'VoicePlugin.java'));
 
-const activityPath = join(android, 'app/src/main/java/ai/dsh/agent/MainActivity.java');
+const activityPath = join(javaDir, 'MainActivity.java');
 if (existsSync(activityPath)) {
   let activity = readFileSync(activityPath, 'utf8');
   if (!activity.includes('registerPlugin(SsePlugin.class)')) {
@@ -26,6 +26,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(SsePlugin.class);
+        registerPlugin(VoicePlugin.class);
         super.onCreate(savedInstanceState);
     }
 }`,
@@ -36,8 +37,14 @@ public class MainActivity extends BridgeActivity {
         'import android.os.Bundle;\nimport com.getcapacitor.BridgeActivity;',
       );
     }
-    writeFileSync(activityPath, activity);
   }
+  if (!activity.includes('registerPlugin(VoicePlugin.class)')) {
+    activity = activity.replace(
+      'registerPlugin(SsePlugin.class);',
+      'registerPlugin(SsePlugin.class);\n        registerPlugin(VoicePlugin.class);',
+    );
+  }
+  writeFileSync(activityPath, activity);
 }
 
 const manifestPath = join(android, 'app/src/main/AndroidManifest.xml');
@@ -47,6 +54,7 @@ if (existsSync(manifestPath)) {
     'android.permission.INTERNET',
     'android.permission.ACCESS_NETWORK_STATE',
     'android.permission.RECORD_AUDIO',
+    'android.permission.MODIFY_AUDIO_SETTINGS',
     'android.permission.CAMERA',
     'android.permission.READ_MEDIA_IMAGES',
     'android.permission.READ_EXTERNAL_STORAGE',
@@ -60,6 +68,17 @@ if (existsSync(manifestPath)) {
   if (!manifest.includes('android:usesCleartextTraffic')) {
     manifest = manifest.replace('<application', '<application android:usesCleartextTraffic="true" ');
   }
+  if (!manifest.includes('android.speech.RecognitionService')) {
+    const queries = `    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+    </queries>
+`;
+    if (manifest.includes('</manifest>')) {
+      manifest = manifest.replace('</manifest>', `${queries}</manifest>`);
+    }
+  }
   writeFileSync(manifestPath, manifest);
 }
 
@@ -70,4 +89,4 @@ if (existsSync(stringsPath)) {
   writeFileSync(stringsPath, xml);
 }
 
-console.log('patched android native SSE plugin and permissions');
+console.log('patched android native SSE/Voice plugins and permissions');

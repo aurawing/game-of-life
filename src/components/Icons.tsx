@@ -31,3 +31,4 @@ export const IconSpark = wrap('M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l
 export const IconPlug = wrap('M9 7V3M15 7V3M8 7h8v6a4 4 0 0 1-8 0zM12 17v4');
 export const IconCheck = wrap('M5 12l5 5L20 7');
 export const IconRestore = wrap('M3 12a9 9 0 1 0 3-6.7M3 4v5h5');
+export const IconPrompt = wrap('M6 3h9l4 4v14H6zM14 3v4h4M8 12h8M8 16h6');
