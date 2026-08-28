@@ -5,6 +5,7 @@ import {
   IconArchive,
   IconClose,
   IconPlus,
+  IconPrompt,
   IconRestore,
   IconSettings,
   IconTrash,
@@ -26,8 +27,11 @@ export function Sidebar(props: {
   const archive = useAppStore((s) => s.archiveSession);
   const restore = useAppStore((s) => s.restoreSession);
   const remove = useAppStore((s) => s.deleteSession);
+  const setSessionSystemPrompt = useAppStore((s) => s.setSessionSystemPrompt);
   const [tab, setTab] = useState<'active' | 'archived'>('active');
   const [q, setQ] = useState('');
+  const [promptId, setPromptId] = useState<string | null>(null);
+  const [draft, setDraft] = useState('');
 
   const list = useMemo(() => {
     const wantArchived = tab === 'archived';
@@ -35,6 +39,13 @@ export function Sidebar(props: {
       .filter((s) => s.archived === wantArchived)
       .filter((s) => !q || s.title.toLowerCase().includes(q.toLowerCase()));
   }, [sessions, tab, q]);
+  const editing = sessions.find((s) => s.id === promptId);
+
+  const openPrompt = (id: string) => {
+    const session = sessions.find((s) => s.id === id);
+    setPromptId(id);
+    setDraft(session?.systemPrompt ?? '');
+  };
 
   return (
     <>
@@ -42,8 +53,8 @@ export function Sidebar(props: {
       <aside className={`drawer ${props.open ? 'open' : ''}`}>
         <div className="drawer-head">
           <div>
-            <div className="brand">DSH Agent</div>
-            <div className="muted tiny">DeepSeek Harness · Android</div>
+            <div className="brand">Aurai</div>
+            <div className="muted tiny">Android Agent</div>
           </div>
           <button className="icon-btn" onClick={props.onClose} aria-label="关闭">
             <IconClose />
@@ -82,6 +93,9 @@ export function Sidebar(props: {
                 <div className="muted tiny">{formatTime(s.updatedAt)}</div>
               </button>
               <div className="session-actions">
+                <button className="icon-btn sm" onClick={() => openPrompt(s.id)} aria-label="系统提示词">
+                  <IconPrompt size={16} />
+                </button>
                 {tab === 'active' ? (
                   <button className="icon-btn sm" onClick={() => archive(s.id)} aria-label="归档">
                     <IconArchive size={16} />
@@ -110,6 +124,53 @@ export function Sidebar(props: {
           </button>
         </div>
       </aside>
+      {editing && (
+        <>
+          <div className="scrim show sheet-scrim" onClick={() => setPromptId(null)} />
+          <div className="sheet">
+            <div className="sheet-handle" />
+            <div className="sheet-head">
+              <div>
+                <div className="sheet-title">本对话系统提示词</div>
+                <div className="muted tiny">{editing.title}</div>
+              </div>
+              <button className="ghost-btn" onClick={() => setPromptId(null)}>
+                取消
+              </button>
+            </div>
+            <div className="sheet-body">
+              <textarea
+                className="prompt"
+                rows={8}
+                aria-label="本对话系统提示词"
+                placeholder="留空则使用全局默认系统提示词"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+              />
+              <div className="sheet-actions">
+                <button
+                  className="ghost-btn"
+                  onClick={() => {
+                    setSessionSystemPrompt(editing.id, '');
+                    setPromptId(null);
+                  }}
+                >
+                  使用全局默认
+                </button>
+                <button
+                  className="primary-btn sm"
+                  onClick={() => {
+                    setSessionSystemPrompt(editing.id, draft);
+                    setPromptId(null);
+                  }}
+                >
+                  保存
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </>
   );
 }

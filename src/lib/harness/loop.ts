@@ -1,20 +1,28 @@
 import { Capacitor } from '@capacitor/core';
 import type { Attachment, ChatMessage, McpServer, Provider, Session, ThinkingEffort, ToolCall } from '../../types';
+import type { PiCatalog, PiModelConfig } from '../pi-catalog';
+import { resolveRequestBaseUrl, supportsVision } from '../pi-catalog';
 import { uid } from '../id';
-import { builtinTools, mcpToolToDefinition, parseToolArgs, toOpenAiTools, type ToolDefinition } from './tools';
+import { builtinTools, mcpToolToDefinition, parseToolArgs, type ToolDefinition } from './tools';
 import { callMcpTool } from './mcp';
-import { mergeToolCalls, thinkingPayload } from './stream';
+import { mergeToolCalls } from './stream';
 import { streamChatCompletions } from '../../native/sse';
+import { EMPTY_MODEL_REPLY, authHeaders, buildChatBody, chatCompletionsUrl, explainAuthFailure, fetchJsonCompletion } from './request';
 
 export interface LoopHooks {
   onAssistant: (msg: ChatMessage) => void;
   onTool: (msg: ChatMessage) => void;
 }
 
-function contentParts(message: ChatMessage): unknown {
-  const images = (message.attachments ?? []).filter((a) => a.kind === 'image' && a.dataUrl);
+function contentParts(message: ChatMessage, vision: boolean): unknown {
+  const imageAtts = (message.attachments ?? []).filter((a) => a.kind === 'image' && a.dataUrl);
+  const images = vision ? imageAtts : [];
+  const skippedImages = vision
+    ? []
+    : imageAtts.map((a) => `\n[图片附件 ${a.name}：当前模型不支持视觉输入]`);
   const texts = [
     message.content,
+    ...skippedImages,
     ...(message.attachments ?? [])
       .filter((a) => a.kind !== 'image')
       .map((a) => `\n[附件 ${a.name}]\n${a.text ?? `(binary ${a.mime}, ${a.size} bytes)`}`),
@@ -29,7 +37,12 @@ function contentParts(message: ChatMessage): unknown {
   ];
 }
 
-export function deriveMessages(systemPrompt: string, history: ChatMessage[]): unknown[] {
+export function deriveMessages(
+  systemPrompt: string,
+  history: ChatMessage[],
+  opts: { vision?: boolean } = {},
+): unknown[] {
+  const vision = opts.vision !== false;
   const messages: unknown[] = [{ role: 'system', content: systemPrompt }];
   for (const m of history) {
     if (m.role === 'tool') {
@@ -52,7 +65,7 @@ export function deriveMessages(systemPrompt: string, history: ChatMessage[]): un
       });
       continue;
     }
-    messages.push({ role: m.role, content: contentParts(m) });
+    messages.push({ role: m.role, content: contentParts(m, vision) });
   }
   return messages;
 }
@@ -67,6 +80,8 @@ export async function runAgentTurn(opts: {
   systemPrompt: string;
   enabledBuiltin: Set<string>;
   mcpServers: McpServer[];
+  catalog?: PiCatalog;
+  modelConfig?: PiModelConfig | null;
   signal?: AbortSignal;
   hooks: LoopHooks;
 }): Promise<ChatMessage[]> {
@@ -104,7 +119,9 @@ export async function runAgentTurn(opts: {
       provider: opts.provider,
       model: opts.model,
       effort: opts.effort,
-      messages: deriveMessages(system, history),
+      catalog: opts.catalog,
+      modelConfig: opts.modelConfig,
+      messages: deriveMessages(system, history, { vision: supportsVision(opts.modelConfig) }),
       tools,
       signal: opts.signal,
       onUpdate: opts.hooks.onAssistant,
@@ -147,6 +164,8 @@ async function streamAssistant(opts: {
   provider: Provider;
   model: string;
   effort: ThinkingEffort;
+  catalog?: PiCatalog;
+  modelConfig?: PiModelConfig | null;
   messages: unknown[];
   tools: ToolDefinition[];
   signal?: AbortSignal;
@@ -162,21 +181,26 @@ async function streamAssistant(opts: {
   };
   opts.onUpdate({ ...msg });
   const thinkStarted = Date.now();
-  const url = joinUrl(opts.provider.baseUrl, '/chat/completions');
-  const think = thinkingPayload(opts.effort);
-  const body: Record<string, unknown> = {
+  const baseUrl = opts.catalog
+    ? resolveRequestBaseUrl(opts.catalog, opts.provider, opts.modelConfig)
+    : opts.modelConfig?.baseUrl || opts.provider.baseUrl;
+  const url = chatCompletionsUrl(baseUrl);
+  const body = buildChatBody({
     model: opts.model,
     messages: opts.messages,
-    stream: true,
-    ...think,
-  };
-  if (opts.tools.length) body.tools = toOpenAiTools(opts.tools);
+    effort: opts.effort,
+    baseUrl,
+    modelConfig: opts.modelConfig,
+    tools: opts.tools,
+  });
 
   let toolAcc: { id?: string; name?: string; arguments: string }[] = [];
+  let sawError = false;
+  const startedAt = Date.now();
   try {
     for await (const ev of streamChatCompletions({
       url,
-      headers: authHeaders(opts.provider),
+      headers: authHeaders(opts.provider, opts.modelConfig),
       body,
       signal: opts.signal,
       preferNative: Capacitor.isNativePlatform(),
@@ -200,17 +224,21 @@ async function streamAssistant(opts: {
         }));
         opts.onUpdate({ ...msg });
       } else if (ev.type === 'error') {
-        msg.content = msg.content || `请求失败：${ev.message}`;
+        sawError = true;
+        const text = /401|invalid api key|unauthorized/i.test(ev.message)
+          ? explainAuthFailure(opts.provider.apiKey, ev.message)
+          : ev.message;
+        msg.content = msg.content || `请求失败：${text}`;
         opts.onUpdate({ ...msg });
       }
     }
   } catch (err) {
+    sawError = true;
     msg.content = msg.content || `网络错误：${err instanceof Error ? err.message : String(err)}`;
   }
   if (msg.reasoning && !msg.reasoningDurationMs) {
     msg.reasoningDurationMs = Date.now() - thinkStarted;
   }
-  msg.streaming = false;
   if (toolAcc.length) {
     msg.toolCalls = toolAcc
       .filter((t) => t.name)
@@ -220,16 +248,40 @@ async function streamAssistant(opts: {
         arguments: t.arguments,
       })) as ToolCall[];
   }
+  const namedTools = msg.toolCalls?.some((t) => t.name) ?? false;
+  const abortedLate = Boolean(opts.signal?.aborted) && Date.now() - startedAt > 500;
+  const empty = !msg.content.trim() && !msg.reasoning?.trim() && !namedTools;
+  if (empty && !sawError && !abortedLate) {
+    msg.content = '正在改用非流式请求…';
+    opts.onUpdate({ ...msg, streaming: true });
+    try {
+      const fallback = await fetchJsonCompletion({
+        url,
+        headers: authHeaders(opts.provider, opts.modelConfig),
+        body,
+        signal: opts.signal,
+      });
+      if (fallback.error) {
+        const text = /401|invalid api key|unauthorized/i.test(fallback.error)
+          ? explainAuthFailure(opts.provider.apiKey, fallback.error)
+          : fallback.error;
+        msg.content = `请求失败：${text}`;
+      } else {
+        msg.reasoning = fallback.reasoning || msg.reasoning;
+        msg.content = fallback.content;
+      }
+    } catch (err) {
+      msg.content = `网络错误：${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+  if (!msg.content.trim() && msg.reasoning?.trim() && !namedTools) {
+    msg.content = msg.reasoning;
+  } else if (abortedLate && !msg.content.trim()) {
+    msg.content = '已停止';
+  } else if (!msg.content.trim() && !namedTools) {
+    msg.content = EMPTY_MODEL_REPLY;
+  }
+  msg.streaming = false;
   opts.onUpdate({ ...msg });
   return msg;
-}
-
-function joinUrl(base: string, path: string): string {
-  return `${base.replace(/\/+$/, '')}${path}`;
-}
-
-function authHeaders(provider: Provider): Record<string, string> {
-  const headers: Record<string, string> = {};
-  if (provider.apiKey) headers.Authorization = `Bearer ${provider.apiKey}`;
-  return headers;
 }

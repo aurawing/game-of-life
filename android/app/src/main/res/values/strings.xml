@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">DSH Agent</string>
-    <string name="title_activity_main">DSH Agent</string>
+    <string name="app_name">Aurai</string>
+    <string name="title_activity_main">Aurai</string>
     <string name="package_name">ai.dsh.agent</string>
     <string name="custom_url_scheme">ai.dsh.agent</string>
 </resources>

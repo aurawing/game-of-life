@@ -1,6 +1,6 @@
 export type Role = 'system' | 'user' | 'assistant' | 'tool';
 
-export type ThinkingEffort = 'none' | 'low' | 'medium' | 'high' | 'max';
+export type ThinkingEffort = string;
 
 export type AttachmentKind = 'text' | 'image' | 'file';
 
@@ -34,12 +34,19 @@ export interface ChatMessage {
   createdAt: number;
 }
 
+export type ProviderKind = 'catalog' | 'custom';
+
 export interface Provider {
   id: string;
   name: string;
   baseUrl: string;
   apiKey: string;
   models: string[];
+  kind?: ProviderKind;
+  reasoning?: boolean;
+  vision?: boolean;
+  contextWindow?: number;
+  maxTokens?: number;
 }
 
 export interface McpServer {
@@ -95,41 +102,30 @@ export interface Session {
   messages: ChatMessage[];
 }
 
+export type ThemeMode = 'dark' | 'light' | 'system';
+
 export interface AppSettings {
   providers: Provider[];
   activeProviderId: string;
   activeModel: string;
   thinkingEffort: ThinkingEffort;
   systemPrompt: string;
+  themeMode: ThemeMode;
   mcpServers: McpServer[];
   installedPlugins: InstalledPlugin[];
 }
 
-export const THINKING_LABELS: Record<ThinkingEffort, string> = {
+export const THINKING_LABELS: Record<string, string> = {
   none: '不思考',
+  off: '不思考',
+  minimal: '最轻',
   low: '低',
   medium: '中',
   high: '高',
+  xhigh: '极高',
   max: '最强',
 };
 
-export const DEFAULT_SYSTEM_PROMPT = `你是 DSH Agent，运行在 Android 上的 DeepSeek Harness 智能体。
+export const DEFAULT_SYSTEM_PROMPT = `你是 Aurai，运行在 Android 上的智能体。
 用简洁、可执行的中文回答。需要外部信息时主动调用工具。
 有附件时先阅读附件再回答。思考过程放在推理通道，最终答案放在正文。`;
-
-export const DEFAULT_PROVIDERS: Provider[] = [
-  {
-    id: 'deepseek',
-    name: 'DeepSeek',
-    baseUrl: 'https://api.deepseek.com/v1',
-    apiKey: '',
-    models: ['deepseek-v4-pro', 'deepseek-v4-flash', 'deepseek-v4-flash-vision-exp'],
-  },
-  {
-    id: 'openai-compatible',
-    name: 'OpenAI Compatible',
-    baseUrl: 'https://api.openai.com/v1',
-    apiKey: '',
-    models: ['gpt-4.1', 'gpt-4o'],
-  },
-];

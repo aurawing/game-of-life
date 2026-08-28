@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extractStreamEvents, mergeToolCalls, parseSseBlock, thinkingPayload } from './stream';
+import { extractStreamEvents, mergeToolCalls, parseSseBlock, parseSsePayloads, thinkingPayload } from './stream';
 
 describe('sse parser', () => {
   it('parses done sentinel', () => {
@@ -30,11 +30,49 @@ describe('sse parser', () => {
 });
 
 describe('thinking payload', () => {
-  it('disables thinking for none', () => {
-    expect(thinkingPayload('none')).toEqual({ thinking: { type: 'disabled' } });
+  it('sends nothing without model config', () => {
+    expect(thinkingPayload('none')).toEqual({});
+    expect(thinkingPayload('medium')).toEqual({});
   });
 
-  it('maps medium to high effort', () => {
-    expect(thinkingPayload('medium')).toEqual({ thinking: { type: 'enabled' }, reasoning_effort: 'high' });
+  it('uses SHOW CONFIGURATION thinkingLevelMap and format', () => {
+    const flash = {
+      reasoning: true,
+      compat: { thinkingFormat: 'deepseek' as const },
+      thinkingLevelMap: { minimal: null, low: 'low', medium: null, high: 'high', max: 'max' },
+    };
+    expect(thinkingPayload('high', flash)).toEqual({ thinking: { type: 'enabled' }, reasoning_effort: 'high' });
+    expect(thinkingPayload('none', flash)).toEqual({ thinking: { type: 'disabled' } });
+    expect(thinkingPayload('high', { reasoning: false })).toEqual({});
+    expect(thinkingPayload('low', { reasoning: true, compat: { thinkingFormat: 'openai' }, thinkingLevelMap: { low: 'low' } })).toEqual({
+      reasoning_effort: 'low',
+    });
+    expect(thinkingPayload('high', { reasoning: true, compat: { thinkingFormat: 'none' } })).toEqual({});
+  });
+
+  it('parses json errors and non-stream completions', () => {
+    expect(extractStreamEvents({ error: { message: 'Missing API key' } })).toEqual([
+      { type: 'error', message: 'Missing API key' },
+    ]);
+    expect(extractStreamEvents({ choices: [{ message: { content: '你好' } }] })).toEqual([
+      { type: 'content', text: '你好' },
+    ]);
+    expect(parseSseBlock('{"error":{"message":"nope"}}')).toEqual({ error: { message: 'nope' } });
+    const payloads = parseSsePayloads('data: {"choices":[{"delta":{"content":"a"}}]}\ndata: {"choices":[{"delta":{"content":"b"}}]}');
+    expect(payloads).toHaveLength(2);
+  });
+
+  it('parses OpenCode Go auth errors and array content parts', () => {
+    expect(
+      extractStreamEvents({
+        type: 'error',
+        error: { type: 'AuthError', message: 'Invalid API key.' },
+      }),
+    ).toEqual([{ type: 'error', message: 'Invalid API key.' }]);
+    expect(
+      extractStreamEvents({
+        choices: [{ message: { content: [{ type: 'text', text: '你好呀' }] } }],
+      }),
+    ).toEqual([{ type: 'content', text: '你好呀' }]);
   });
 });

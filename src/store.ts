@@ -8,12 +8,22 @@ import type {
   McpServer,
   Provider,
   Session,
+  ThemeMode,
   ThinkingEffort,
 } from './types';
-import { DEFAULT_PROVIDERS, DEFAULT_SYSTEM_PROMPT } from './types';
+import { DEFAULT_SYSTEM_PROMPT } from './types';
 import { guessTitle, now, uid } from './lib/id';
 import { runAgentTurn } from './lib/harness/loop';
 import { initializeMcp } from './lib/harness/mcp';
+import { isMaskedApiKey, normalizeApiKey } from './lib/harness/request';
+import {
+  bundledCatalog,
+  clampEffort,
+  loadPiCatalog,
+  mergeSavedProviders,
+  resolveModelConfig,
+  type PiCatalog,
+} from './lib/pi-catalog';
 
 export const BUILTIN_PLUGINS: InstalledPlugin[] = [
   {
@@ -79,6 +89,9 @@ interface AppState extends AppSettings {
   busy: boolean;
   abort?: AbortController;
   hydrateDone: boolean;
+  catalog: PiCatalog;
+  catalogSource: 'bundled' | 'live';
+  refreshCatalog: () => Promise<void>;
   setProviderField: (id: string, patch: Partial<Provider>) => void;
   addProvider: () => void;
   removeProvider: (id: string) => void;
@@ -86,7 +99,8 @@ interface AppState extends AppSettings {
   setActiveModel: (model: string) => void;
   setThinkingEffort: (effort: ThinkingEffort) => void;
   setSystemPrompt: (prompt: string) => void;
-  setSessionSystemPrompt: (prompt: string) => void;
+  setSessionSystemPrompt: (sessionId: string, prompt: string) => void;
+  setThemeMode: (mode: ThemeMode) => void;
   newSession: () => void;
   selectSession: (id: string) => void;
   archiveSession: (id: string) => void;
@@ -110,49 +124,105 @@ export const useAppStore = create<AppState>()(
     (set, get) => {
       const first = emptySession();
       return {
-        providers: DEFAULT_PROVIDERS,
+        providers: mergeSavedProviders(undefined, bundledCatalog),
         activeProviderId: 'deepseek',
         activeModel: 'deepseek-v4-flash',
         thinkingEffort: 'high',
         systemPrompt: DEFAULT_SYSTEM_PROMPT,
+        themeMode: 'dark',
         mcpServers: [],
         installedPlugins: BUILTIN_PLUGINS,
         sessions: [first],
         activeSessionId: first.id,
         busy: false,
         hydrateDone: false,
+        catalog: bundledCatalog,
+        catalogSource: 'bundled',
 
-        setProviderField: (id, patch) =>
-          set({ providers: get().providers.map((p) => (p.id === id ? { ...p, ...patch } : p)) }),
-        addProvider: () =>
+        refreshCatalog: async () => {
+          const { catalog, source } = await loadPiCatalog();
+          const state = get();
+          const providers = mergeSavedProviders(state.providers, catalog);
+          const active = providers.find((p) => p.id === state.activeProviderId) ?? providers[0];
+          const config = resolveModelConfig(catalog, active, state.activeModel);
+          const model =
+            config?.id && catalog[active?.id ?? '']?.[state.activeModel]
+              ? state.activeModel
+              : (active?.models[0] ?? state.activeModel);
+          const nextConfig = resolveModelConfig(catalog, active, model);
           set({
-            providers: [
-              ...get().providers,
-              {
-                id: uid('prov'),
-                name: '自定义提供商',
-                baseUrl: 'https://api.example.com/v1',
-                apiKey: '',
-                models: ['custom-model'],
-              },
-            ],
-          }),
+            catalog,
+            catalogSource: source,
+            providers,
+            activeProviderId: active?.id ?? state.activeProviderId,
+            activeModel: model,
+            thinkingEffort: clampEffort(state.thinkingEffort, nextConfig),
+          });
+        },
+        setProviderField: (id, patch) => {
+          const cleaned = patch.apiKey != null ? { ...patch, apiKey: normalizeApiKey(patch.apiKey) } : patch;
+          const providers = get().providers.map((p) => (p.id === id ? { ...p, ...cleaned } : p));
+          const next: Partial<AppState> = { providers };
+          if (cleaned.models && get().activeProviderId === id && !cleaned.models.includes(get().activeModel)) {
+            next.activeModel = cleaned.models[0] ?? get().activeModel;
+          }
+          set(next);
+        },
+        addProvider: () => {
+          const created = {
+            id: uid('prov'),
+            name: '自定义提供商',
+            baseUrl: 'https://api.example.com/v1',
+            apiKey: '',
+            models: ['custom-model'],
+            kind: 'custom' as const,
+            reasoning: true,
+            vision: true,
+            contextWindow: 128000,
+            maxTokens: 8192,
+          };
+          set({
+            providers: [...get().providers, created],
+            activeProviderId: created.id,
+            activeModel: created.models[0],
+            thinkingEffort: clampEffort(get().thinkingEffort, resolveModelConfig(get().catalog, created, created.models[0])),
+          });
+        },
         removeProvider: (id) => {
+          const target = get().providers.find((p) => p.id === id);
+          if (target?.kind !== 'custom') return;
           const providers = get().providers.filter((p) => p.id !== id);
           const activeProviderId = get().activeProviderId === id ? providers[0]?.id ?? '' : get().activeProviderId;
-          set({ providers, activeProviderId });
+          const next = providers.find((p) => p.id === activeProviderId);
+          const model = next?.models[0] ?? get().activeModel;
+          set({
+            providers,
+            activeProviderId,
+            activeModel: get().activeProviderId === id ? model : get().activeModel,
+          });
         },
         setActiveProvider: (id) => {
           const p = get().providers.find((x) => x.id === id);
-          set({ activeProviderId: id, activeModel: p?.models[0] ?? get().activeModel });
+          const model = p?.models[0] ?? get().activeModel;
+          const config = resolveModelConfig(get().catalog, p, model);
+          set({
+            activeProviderId: id,
+            activeModel: model,
+            thinkingEffort: clampEffort(get().thinkingEffort, config),
+          });
         },
-        setActiveModel: (model) => set({ activeModel: model }),
+        setActiveModel: (model) => {
+          const p = get().providers.find((x) => x.id === get().activeProviderId);
+          const config = resolveModelConfig(get().catalog, p, model);
+          set({ activeModel: model, thinkingEffort: clampEffort(get().thinkingEffort, config) });
+        },
         setThinkingEffort: (effort) => set({ thinkingEffort: effort }),
         setSystemPrompt: (prompt) => set({ systemPrompt: prompt }),
-        setSessionSystemPrompt: (prompt) =>
+        setSessionSystemPrompt: (sessionId, prompt) =>
           set({
-            sessions: get().sessions.map((s) => (s.id === get().activeSessionId ? { ...s, systemPrompt: prompt } : s)),
+            sessions: get().sessions.map((s) => (s.id === sessionId ? { ...s, systemPrompt: prompt } : s)),
           }),
+        setThemeMode: (mode) => set({ themeMode: mode }),
         newSession: () => {
           const session = emptySession();
           set({ sessions: [session, ...get().sessions], activeSessionId: session.id });
@@ -187,7 +257,8 @@ export const useAppStore = create<AppState>()(
           const session = state.sessions.find((s) => s.id === state.activeSessionId);
           const provider = state.providers.find((p) => p.id === state.activeProviderId);
           if (!session || !provider) return;
-          if (!provider.apiKey) {
+          const apiKey = normalizeApiKey(provider.apiKey);
+          if (!apiKey) {
             get().upsertMessage(session.id, {
               id: uid('msg'),
               role: 'assistant',
@@ -196,6 +267,21 @@ export const useAppStore = create<AppState>()(
             });
             return;
           }
+          if (isMaskedApiKey(provider.apiKey) || isMaskedApiKey(apiKey)) {
+            get().upsertMessage(session.id, {
+              id: uid('msg'),
+              role: 'assistant',
+              content:
+                '这个 API Key 含有省略号，是控制台掩码，不是完整密钥。请到 OpenCode 新建 Key，在弹窗里复制完整 sk-（约 67 位），设置里点「显示」后重新粘贴。',
+              createdAt: now(),
+            });
+            return;
+          }
+          if (apiKey !== provider.apiKey) {
+            get().setProviderField(provider.id, { apiKey });
+          }
+          const authed = { ...provider, apiKey };
+          const modelConfig = resolveModelConfig(state.catalog, authed, state.activeModel);
           const abort = new AbortController();
           set({ busy: true, abort });
           const enabledBuiltin = new Set(state.installedPlugins.filter((p) => p.source === 'builtin' && p.enabled).map((p) => p.id));
@@ -204,12 +290,14 @@ export const useAppStore = create<AppState>()(
               session,
               userText: text,
               attachments,
-              provider,
+              provider: authed,
               model: state.activeModel,
-              effort: state.thinkingEffort,
+              effort: clampEffort(state.thinkingEffort, modelConfig),
               systemPrompt: session.systemPrompt?.trim() || state.systemPrompt,
               enabledBuiltin,
               mcpServers: state.mcpServers,
+              catalog: state.catalog,
+              modelConfig,
               signal: abort.signal,
               hooks: {
                 onAssistant: (msg) => get().upsertMessage(session.id, msg),
@@ -295,6 +383,7 @@ export const useAppStore = create<AppState>()(
         activeModel: s.activeModel,
         thinkingEffort: s.thinkingEffort,
         systemPrompt: s.systemPrompt,
+        themeMode: s.themeMode,
         mcpServers: s.mcpServers.map((server) => ({ ...server, tools: undefined, status: 'idle' })),
         installedPlugins: s.installedPlugins,
         sessions: s.sessions,
@@ -306,8 +395,9 @@ export const useAppStore = create<AppState>()(
           ...current,
           ...p,
           installedPlugins: mergePlugins(p.installedPlugins),
-          providers: p.providers?.length ? p.providers : current.providers,
+          providers: mergeSavedProviders(p.providers, current.catalog ?? bundledCatalog),
           sessions: p.sessions?.length ? p.sessions : current.sessions,
+          themeMode: p.themeMode ?? current.themeMode,
         };
       },
     },

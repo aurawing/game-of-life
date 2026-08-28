@@ -16,7 +16,7 @@ export function MessageList(props: {
     <div className="msg-list">
       {props.messages.length === 0 && (
         <div className="hero">
-          <div className="hero-mark">🐋</div>
+          <img className="hero-mark" src="/icon-192.png" alt="" />
           <h1>有什么可以帮忙的？</h1>
           <p>自定义模型、思维强度、插件中心与 MCP，都在左侧菜单。</p>
         </div>
@@ -87,10 +87,15 @@ function MessageBubble({
           </div>
         )}
         {msg.content ? (
-          <div className="md" dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
+          <div
+            className={/请求失败|网络错误|没有正文|空响应/.test(msg.content) ? 'md assistant-error' : 'md'}
+            dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }}
+          />
         ) : msg.streaming ? (
           <div className="muted">正在输出…</div>
-        ) : null}
+        ) : (
+          <div className="assistant-error">没有收到模型输出</div>
+        )}
       </div>
     </div>
   );
