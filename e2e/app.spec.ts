@@ -25,6 +25,7 @@ test.describe('DSH Agent Android UI', () => {
     await expect(page.getByText('当前模型不支持视觉输入')).toBeVisible();
     await expect(page.getByRole('button', { name: /文件/ })).toBeVisible();
     await expect(page.getByRole('button', { name: /文本片段/ })).toBeVisible();
+    await page.getByRole('button', { name: '附件' }).click();
     await page.getByLabel('模型').selectOption('deepseek-v4-flash-vision-exp');
     await page.getByRole('button', { name: '附件' }).click();
     await expect(page.getByRole('button', { name: /拍照/ })).toBeVisible();
@@ -66,7 +67,7 @@ test.describe('DSH Agent Android UI', () => {
     await expect(page.getByLabel('设置提供商')).toContainText('DeepSeek');
     await expect(page.getByText('推理 支持')).toBeVisible();
     await expect(page.getByText('视觉 不支持')).toBeVisible();
-    await expect(page.getByText(/上下文 1M/)).toBeVisible();
+    await expect(page.getByText('上下文 1M', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: '新增' }).click();
     await expect(page.getByLabel('设置提供商')).toContainText('自定义提供商');
     await page.getByLabel('名称').fill('本地 Ollama');
@@ -186,7 +187,7 @@ test.describe('DSH Agent Android UI', () => {
     await page.getByLabel('API Key').fill('sk-test');
     await closeOverlay(page);
 
-    await page.route('https://api.deepseek.com/v1/chat/completions', async (route) => {
+    await page.route(/\/chat\/completions$/, async (route) => {
       const sse = [
         'data: {"choices":[{"delta":{"reasoning_content":"逐步思考附件与问题。"}}]}',
         '',
