@@ -6,6 +6,9 @@ import {
   authHeaders,
   buildChatBody,
   chatCompletionsUrl,
+  explainAuthFailure,
+  isMaskedApiKey,
+  normalizeApiKey,
   normalizeChatBaseUrl,
   requestMaxTokens,
   shouldSendThinkingPayload,
@@ -75,6 +78,14 @@ describe('chat request shaping', () => {
       kind: 'catalog',
     };
     expect(authHeaders(provider, goFlash)).toEqual({ Authorization: 'Bearer oc-key' });
+  });
+
+  it('strips bearer/whitespace and explains masked OpenCode keys', () => {
+    expect(normalizeApiKey('  Bearer sk-abc\n')).toBe('sk-abc');
+    expect(isMaskedApiKey('sk-hSmj...oGil')).toBe(true);
+    expect(isMaskedApiKey('sk-' + 'a'.repeat(64))).toBe(false);
+    expect(explainAuthFailure('sk-ab…cd', 'HTTP 401: Invalid API key.')).toMatch(/掩码/);
+    expect(explainAuthFailure('sk-short', 'HTTP 401: Invalid API key.')).toMatch(/只发出了/);
   });
 
   it('keeps a visible empty-reply hint', () => {

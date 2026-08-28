@@ -15,6 +15,7 @@ import { DEFAULT_SYSTEM_PROMPT } from './types';
 import { guessTitle, now, uid } from './lib/id';
 import { runAgentTurn } from './lib/harness/loop';
 import { initializeMcp } from './lib/harness/mcp';
+import { isMaskedApiKey, normalizeApiKey } from './lib/harness/request';
 import {
   bundledCatalog,
   clampEffort,
@@ -159,10 +160,11 @@ export const useAppStore = create<AppState>()(
           });
         },
         setProviderField: (id, patch) => {
-          const providers = get().providers.map((p) => (p.id === id ? { ...p, ...patch } : p));
+          const cleaned = patch.apiKey != null ? { ...patch, apiKey: normalizeApiKey(patch.apiKey) } : patch;
+          const providers = get().providers.map((p) => (p.id === id ? { ...p, ...cleaned } : p));
           const next: Partial<AppState> = { providers };
-          if (patch.models && get().activeProviderId === id && !patch.models.includes(get().activeModel)) {
-            next.activeModel = patch.models[0] ?? get().activeModel;
+          if (cleaned.models && get().activeProviderId === id && !cleaned.models.includes(get().activeModel)) {
+            next.activeModel = cleaned.models[0] ?? get().activeModel;
           }
           set(next);
         },
@@ -255,7 +257,8 @@ export const useAppStore = create<AppState>()(
           const session = state.sessions.find((s) => s.id === state.activeSessionId);
           const provider = state.providers.find((p) => p.id === state.activeProviderId);
           if (!session || !provider) return;
-          if (!provider.apiKey) {
+          const apiKey = normalizeApiKey(provider.apiKey);
+          if (!apiKey) {
             get().upsertMessage(session.id, {
               id: uid('msg'),
               role: 'assistant',
@@ -264,7 +267,21 @@ export const useAppStore = create<AppState>()(
             });
             return;
           }
-          const modelConfig = resolveModelConfig(state.catalog, provider, state.activeModel);
+          if (isMaskedApiKey(provider.apiKey) || isMaskedApiKey(apiKey)) {
+            get().upsertMessage(session.id, {
+              id: uid('msg'),
+              role: 'assistant',
+              content:
+                '这个 API Key 含有省略号，是控制台掩码，不是完整密钥。请到 OpenCode 新建 Key，在弹窗里复制完整 sk-（约 67 位），设置里点「显示」后重新粘贴。',
+              createdAt: now(),
+            });
+            return;
+          }
+          if (apiKey !== provider.apiKey) {
+            get().setProviderField(provider.id, { apiKey });
+          }
+          const authed = { ...provider, apiKey };
+          const modelConfig = resolveModelConfig(state.catalog, authed, state.activeModel);
           const abort = new AbortController();
           set({ busy: true, abort });
           const enabledBuiltin = new Set(state.installedPlugins.filter((p) => p.source === 'builtin' && p.enabled).map((p) => p.id));
@@ -273,7 +290,7 @@ export const useAppStore = create<AppState>()(
               session,
               userText: text,
               attachments,
-              provider,
+              provider: authed,
               model: state.activeModel,
               effort: clampEffort(state.thinkingEffort, modelConfig),
               systemPrompt: session.systemPrompt?.trim() || state.systemPrompt,

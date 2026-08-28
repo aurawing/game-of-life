@@ -97,6 +97,17 @@ test.describe('Aurai Android UI', () => {
     await expect(page.getByText('请先在设置里填写 Provider API Key。')).toBeVisible();
   });
 
+  test('masked console api key is rejected before network', async ({ page }) => {
+    await reset(page);
+    await openMenu(page);
+    await page.getByRole('button', { name: '设置' }).click();
+    await page.getByLabel('API Key').fill('sk-hSmj...oGil');
+    await closeOverlay(page);
+    await page.getByPlaceholder('发送消息').fill('你好');
+    await page.getByRole('button', { name: '发送' }).click();
+    await expect(page.getByText(/控制台掩码|省略号/)).toBeVisible();
+  });
+
   test('sessions: create, archive, restore, delete, search and per-chat prompt', async ({ page }) => {
     await reset(page);
     await openMenu(page);

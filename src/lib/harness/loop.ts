@@ -7,7 +7,7 @@ import { builtinTools, mcpToolToDefinition, parseToolArgs, type ToolDefinition }
 import { callMcpTool } from './mcp';
 import { mergeToolCalls } from './stream';
 import { streamChatCompletions } from '../../native/sse';
-import { EMPTY_MODEL_REPLY, authHeaders, buildChatBody, chatCompletionsUrl, fetchJsonCompletion } from './request';
+import { EMPTY_MODEL_REPLY, authHeaders, buildChatBody, chatCompletionsUrl, explainAuthFailure, fetchJsonCompletion } from './request';
 
 export interface LoopHooks {
   onAssistant: (msg: ChatMessage) => void;
@@ -225,7 +225,10 @@ async function streamAssistant(opts: {
         opts.onUpdate({ ...msg });
       } else if (ev.type === 'error') {
         sawError = true;
-        msg.content = msg.content || `请求失败：${ev.message}`;
+        const text = /401|invalid api key|unauthorized/i.test(ev.message)
+          ? explainAuthFailure(opts.provider.apiKey, ev.message)
+          : ev.message;
+        msg.content = msg.content || `请求失败：${text}`;
         opts.onUpdate({ ...msg });
       }
     }
@@ -259,7 +262,10 @@ async function streamAssistant(opts: {
         signal: opts.signal,
       });
       if (fallback.error) {
-        msg.content = `请求失败：${fallback.error}`;
+        const text = /401|invalid api key|unauthorized/i.test(fallback.error)
+          ? explainAuthFailure(opts.provider.apiKey, fallback.error)
+          : fallback.error;
+        msg.content = `请求失败：${text}`;
       } else {
         msg.reasoning = fallback.reasoning || msg.reasoning;
         msg.content = fallback.content;

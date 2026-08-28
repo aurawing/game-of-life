@@ -341,6 +341,7 @@ textarea:focus, input:focus, select:focus {
   padding: 12px;
   font-size: 16px;
 }
+.form input.key-masked { -webkit-text-security: disc; }
 .search { margin: 4px 0 10px; }
 .tabs { display: flex; background: var(--bg); border-radius: 12px; padding: 3px; }
 .tab { flex: 1; padding: 10px; border-radius: 10px; color: var(--muted); font-size: 15px; }

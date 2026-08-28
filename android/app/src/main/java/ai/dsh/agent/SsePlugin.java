@@ -69,7 +69,7 @@ public class SsePlugin extends Plugin {
             connections.put(id, conn);
             conn.setRequestMethod(method);
             conn.setDoInput(true);
-            conn.setInstanceFollowRedirects(true);
+            conn.setInstanceFollowRedirects(false);
             conn.setConnectTimeout(20000);
             conn.setReadTimeout(0);
             conn.setRequestProperty("Accept", "text/event-stream, application/json");

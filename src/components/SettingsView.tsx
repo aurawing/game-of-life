@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { THINKING_LABELS, type ThemeMode } from '../types';
 import { useAppStore } from '../store';
 import { IconClose, IconPlus, IconTrash } from './Icons';
@@ -11,6 +12,8 @@ import {
   thinkingLabel,
 } from '../lib/pi-catalog';
 import { THEME_LABELS } from '../lib/theme';
+import { isOpenCodeGoUrl } from '../lib/provider-urls';
+import { normalizeApiKey, probeProviderAuth } from '../lib/harness/request';
 
 const THEMES: ThemeMode[] = ['dark', 'light', 'system'];
 
@@ -38,6 +41,20 @@ export function SettingsView({ onClose }: { onClose: () => void }) {
   const levels = availableThinkingLevels(modelConfig);
   const reasoning = supportsReasoning(modelConfig);
   const vision = supportsVision(modelConfig);
+  const [showKey, setShowKey] = useState(true);
+  const [probe, setProbe] = useState('');
+  const keyLen = normalizeApiKey(active?.apiKey).length;
+
+  const testAuth = async () => {
+    if (!active) return;
+    setProbe('正在测试…');
+    try {
+      const result = await probeProviderAuth(active);
+      setProbe(result.detail);
+    } catch (err) {
+      setProbe(err instanceof Error ? err.message : String(err));
+    }
+  };
 
   return (
     <div className="page">
@@ -106,12 +123,31 @@ export function SettingsView({ onClose }: { onClose: () => void }) {
               <label>
                 API Key
                 <input
-                  type="password"
+                  type="text"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
                   value={active.apiKey}
-                  placeholder="sk-..."
+                  placeholder="完整 sk- 密钥，不要带省略号"
+                  className={showKey ? undefined : 'key-masked'}
                   onChange={(e) => setProviderField(active.id, { apiKey: e.target.value })}
+                  onBlur={() => setProviderField(active.id, { apiKey: normalizeApiKey(active.apiKey) })}
                 />
               </label>
+              <div className="chips" style={{ marginTop: 8 }}>
+                <button type="button" className="chip btn" onClick={() => setShowKey((v) => !v)}>
+                  {showKey ? '隐藏' : '显示'}
+                </button>
+                <button type="button" className="chip btn" onClick={() => void testAuth()}>
+                  测试连接
+                </button>
+                {keyLen > 0 && <span className="muted tiny">已输入 {keyLen} 位</span>}
+              </div>
+              {isOpenCodeGoUrl(active.baseUrl) && (
+                <p className="muted tiny">OpenCode 完整 Key 约 67 位。列表里带 … 的是掩码，请新建后在弹窗里复制。</p>
+              )}
+              {probe && <p className={probe.includes('有效') ? 'muted tiny' : 'assistant-error'}>{probe}</p>}
               {custom ? (
                 <>
                   <label>
