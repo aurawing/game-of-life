@@ -17,7 +17,7 @@
 
 构建命令：`npm run android:apk`（Capacitor sync + Android Gradle Plugin 8.13，JDK 21）
 
-本包包含：预置 pi.dev Provider、Provider/模型双下拉、SHOW CONFIGURATION 动态能力、自定义 Provider、DeepSeek 蓝色主题与字号折行。
+本包包含：预置 pi.dev Provider、Provider/模型双下拉、SHOW CONFIGURATION 动态能力、自定义 Provider、DeepSeek 蓝色主题与字号折行、鲸鱼娘启动图标与启动页。
 
 ## 单元测试（vitest）
 
