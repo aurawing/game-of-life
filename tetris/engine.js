@@ -8,7 +8,7 @@
   "use strict";
 
   const COLS = 10;
-  const HIDDEN = 2;
+  const HIDDEN = 0;
   const VISIBLE_ROWS = 20;
   const ROWS = HIDDEN + VISIBLE_ROWS;
   const TYPES = ["I", "O", "T", "S", "Z", "J", "L"];

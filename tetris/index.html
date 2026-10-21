@@ -58,9 +58,17 @@
     .layout {
       display: grid;
       grid-template-columns: 118px auto 150px;
+      grid-template-areas:
+        "hold board next"
+        "hold board stats";
       gap: 14px;
       align-items: start;
     }
+
+    .hold { grid-area: hold; }
+    .board-wrap { grid-area: board; }
+    .side { grid-area: next; }
+    .stats-panel { grid-area: stats; }
 
     .panel {
       background: var(--panel);
@@ -162,9 +170,9 @@
       margin-top: 14px;
       color: var(--muted);
       font-size: 12px;
-      line-height: 1.7;
+      line-height: 1.9;
       text-align: center;
-      max-width: 640px;
+      max-width: 720px;
     }
 
     kbd {
@@ -193,6 +201,7 @@
       border-radius: 12px;
       min-height: 48px;
       font-size: 16px;
+      touch-action: manipulation;
     }
 
     .row { display: grid; gap: 8px; }
@@ -216,24 +225,33 @@
     }
 
     @media (max-width: 760px) {
-      :root { --cell: 24px; }
+      :root { --cell: 22px; }
+      body { padding: 10px 10px 16px; }
       .layout {
         grid-template-columns: 1fr 1fr;
         grid-template-areas:
           "hold next"
-          "board board"
-          "stats stats";
+          "stats stats"
+          "board board";
         width: min(100%, 420px);
       }
-      .hold { grid-area: hold; }
-      .board-wrap { grid-area: board; justify-self: center; }
-      .side { grid-area: next; }
-      .stats { grid-area: stats; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-      .stats .stat { margin: 0; }
-      .stats .stat b { font-size: 16px; }
+      .board-wrap { justify-self: center; width: 100%; }
+      .board-wrap.panel { padding: 8px; }
+      .stats-panel {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 8px;
+        padding: 10px;
+      }
+      .stats-panel .stat { margin: 0; }
+      .stats-panel .stat b { font-size: 16px; }
+      .hold .hint { display: none; }
+      #next1, #next2 { display: none; }
       .controls { display: grid; }
-      .hint { display: none; }
-      h1 { font-size: 22px; letter-spacing: 0.18em; }
+      p.hint { display: none; }
+      h1 { font-size: 20px; letter-spacing: 0.18em; text-indent: 0.18em; }
+      .subtitle { margin-bottom: 10px; }
+      .mini { width: 100%; height: 64px; }
     }
   </style>
 </head>
@@ -269,12 +287,12 @@
       <canvas class="mini" id="next0" width="96" height="72"></canvas>
       <canvas class="mini" id="next1" width="96" height="72"></canvas>
       <canvas class="mini" id="next2" width="96" height="72"></canvas>
-      <div class="stats">
-        <div class="stat"><div class="label">SCORE</div><b id="score">0</b></div>
-        <div class="stat"><div class="label">HIGH</div><b id="high">0</b></div>
-        <div class="stat"><div class="label">LINES</div><b id="lines">0</b></div>
-        <div class="stat"><div class="label">LEVEL</div><b id="level">1</b></div>
-      </div>
+    </div>
+    <div class="panel stats-panel">
+      <div class="stat"><div class="label">SCORE</div><b id="score">0</b></div>
+      <div class="stat"><div class="label">HIGH</div><b id="high">0</b></div>
+      <div class="stat"><div class="label">LINES</div><b id="lines">0</b></div>
+      <div class="stat"><div class="label">LEVEL</div><b id="level">1</b></div>
     </div>
   </div>
 
@@ -406,14 +424,18 @@
       function drawBlock(ctx, x, y, size, color, ghost) {
         const pad = 1.5;
         ctx.save();
-        ctx.globalAlpha = ghost ? 0.28 : 1;
         roundRect(ctx, x + pad, y + pad, size - pad * 2, size - pad * 2, 5);
-        const g = ctx.createLinearGradient(x, y, x, y + size);
-        g.addColorStop(0, ghost ? color : shade(color, 1.18));
-        g.addColorStop(1, ghost ? color : shade(color, 0.72));
-        ctx.fillStyle = g;
-        ctx.fill();
-        if (!ghost) {
+        if (ghost) {
+          ctx.strokeStyle = color;
+          ctx.globalAlpha = 0.7;
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        } else {
+          const g = ctx.createLinearGradient(x, y, x, y + size);
+          g.addColorStop(0, shade(color, 1.18));
+          g.addColorStop(1, shade(color, 0.72));
+          ctx.fillStyle = g;
+          ctx.fill();
           ctx.fillStyle = "rgba(255,255,255,0.22)";
           roundRect(ctx, x + pad + 3, y + pad + 3, (size - pad * 2) * 0.42, 5, 2);
           ctx.fill();
